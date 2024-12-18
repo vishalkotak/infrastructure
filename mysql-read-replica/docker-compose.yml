@@ -1,0 +1,32 @@
+version: '3.8'
+
+# Passwords are given just for demo purposes. Please do not use this in production.
+
+services:
+  mysql-instance-1:
+    image: mysql:8.0
+    container_name: primary-mysql-container
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mydatabase
+      MYSQL_USER: myuser
+      MYSQL_PASSWORD: mypassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./primary-config:/etc/mysql/conf.d
+    command: --server-id=1 --log-bin=mysql-bin --binlog-format=ROW
+
+  mysql-instance-2:
+    image: mysql:8.0
+    container_name: secondary-mysql-container
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mydatabase
+      MYSQL_USER: myuser
+      MYSQL_PASSWORD: mypassword
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./replica-config:/etc/mysql/conf.d
+    command: --server-id=2 --relay-log=relay-log-bin
