@@ -16,7 +16,6 @@ FLUSH PRIVILEGES;
 - Get the binary log file name and position:
 ```
 SHOW MASTER STATUS;
-
 ```
 +------------------+----------+--------------+------------------+
 | File             | Position | Binlog_Do_DB | Binlog_Ignore_DB |
@@ -39,7 +38,9 @@ CHANGE MASTER TO
   GET_MASTER_PUBLIC_KEY=1;
 ```
 - Start the replcation process
+```
 START SLAVE;
+```
 - Check the replica status:
 ```
 SHOW SLAVE STATUS\G;
