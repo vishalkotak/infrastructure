@@ -70,6 +70,15 @@ class API:
 
 
 class Gates(unittest.TestCase):
+    def test_validation_containers_use_runner_uid_and_disposable_home(self):
+        with patch("bot.run") as run, patch("bot.subprocess.run"):
+            bot.container(Path("/tmp/repo"), Path("/tmp/repo/project"), "python")
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("--user") + 1], f"{os.getuid()}:{os.getgid()}")
+        self.assertIn("HOME=/tmp", command)
+        self.assertIn("CARGO_HOME=/tmp/cargo", command)
+        self.assertNotIn(os.environ.get("SECURITY_BOT_TOKEN", "impossible-token-value"), " ".join(command))
+
     def test_forks_are_excluded_from_scans_and_renovate(self):
         repos = [{"full_name": f"{bot.OWNER}/{name}", "owner": {"login": bot.OWNER},
                   "archived": False, "disabled": False, **metadata}
@@ -188,6 +197,7 @@ class Gates(unittest.TestCase):
               "base": {"ref": "main"}, "title": "Update foo [SECURITY]",
               "labels": [{"name": "security-bot"}]}
         self.assertTrue(bot.eligible(pr, repo, "actor"))
+        self.assertTrue(bot.eligible({**pr, "title": "chore(deps): update foo [security]"}, repo, "actor"))
         for change in [{"user": {"login": "outsider"}}, {"draft": True},
                        {"title": "Regular upgrade"}, {"base": {"ref": "other"}},
                        {"head": {"repo": {"full_name": "evil/fork"}, "ref": "security-bot/foo"}}]:

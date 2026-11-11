@@ -6,6 +6,13 @@ import install
 
 
 class InstallerCredentials(unittest.TestCase):
+    def test_live_dispatch_enables_publication(self):
+        new_run = {"created_at": "9999-01-01T00:00:00Z", "html_url": "https://github.com/test/run"}
+        with patch("install.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run, \
+                patch("install.gh", return_value={"workflow_runs": [new_run]}):
+            install.dispatch_run("main", apply=True)
+        self.assertTrue(json_payload_apply(run.call_args.kwargs["input"]))
+
     def test_installer_never_reads_or_enables_alerts_on_forks(self):
         repos = [{"full_name": f"vishalkotak/{name}", "owner": {"login": "vishalkotak"}, **metadata}
                  for name, metadata in [("original", {"fork": False}), ("forked", {"fork": True}),
@@ -46,7 +53,7 @@ class InstallerCredentials(unittest.TestCase):
         with patch("install.subprocess.run", side_effect=replies) as run, \
                 patch("install.gh", side_effect=[{"workflow_runs": []}, {"workflow_runs": [new_run]}]), \
                 patch("install.time.sleep"):
-            result = install.dispatch_dry_run("main")
+            result = install.dispatch_run("main")
         self.assertEqual(result, new_run)
         self.assertEqual(run.call_count, 2)
         self.assertFalse(json_payload_apply(run.call_args.kwargs["input"]))
@@ -56,7 +63,7 @@ class InstallerCredentials(unittest.TestCase):
         with patch("install.subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "HTTP 500")) as run, \
                 patch("install.gh", return_value={"workflow_runs": [new_run]}), \
                 patch("install.time.sleep"):
-            result = install.dispatch_dry_run("main")
+            result = install.dispatch_run("main")
         self.assertEqual(result, new_run)
         self.assertEqual(run.call_count, 1)
 
@@ -91,12 +98,11 @@ class InstallerCredentials(unittest.TestCase):
         self.assertIn("refresh", run.call_args.args[0])
         self.assertIn("security_events", run.call_args.args[0][-1])
 
-    def test_missing_security_scope_refreshes_even_with_workflow_scope(self):
-        replies = [subprocess.CompletedProcess([], 0, "HTTP/2 200\nx-oauth-scopes: repo, workflow\n\n{}", ""),
-                   subprocess.CompletedProcess([], 0)]
-        with patch("install.subprocess.run", side_effect=replies) as run:
+    def test_normalized_repo_scope_does_not_request_redundant_authorization(self):
+        reply = subprocess.CompletedProcess([], 0, "HTTP/2 200\nx-oauth-scopes: repo, workflow\n\n{}", "")
+        with patch("install.subprocess.run", return_value=reply) as run:
             install.ensure_workflow_scope()
-        self.assertIn("security_events", run.call_args.args[0][-1])
+        self.assertEqual(run.call_count, 1)
 
     def test_alert_access_failure_never_overwrites_secret(self):
         with patch("install.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "private\n", "")) as run, \

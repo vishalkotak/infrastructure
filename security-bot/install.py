@@ -43,7 +43,9 @@ def ensure_workflow_scope():
     # enforced by GitHub when the installer writes repository/workflow files.
     if scope_header:
         scopes = {scope.strip() for scope in scope_header.split(":", 1)[1].split(",")}
-        if not {"repo", "workflow", "security_events"}.issubset(scopes):
+        # GitHub normalizes security_events into its broader repo scope.
+        # Actual Dependabot access is checked separately below.
+        if not {"repo", "workflow"}.issubset(scopes):
             print("GitHub authorization needs repository, workflow, and security-alert access.", flush=True)
             result = subprocess.run(["gh", "auth", "refresh", "--hostname", "github.com",
                                      "--scopes", "repo,workflow,security_events"], check=False)
@@ -161,10 +163,10 @@ def save_scheduled_token(prompt=False):
     print("Scheduled credential saved directly to GitHub Actions.")
 
 
-def dispatch_dry_run(branch):
+def dispatch_run(branch, apply=False):
     endpoint = f"repos/{REPO}/actions/workflows/daily-security.yml"
     since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    payload = json.dumps({"ref": branch, "inputs": {"apply": False}})
+    payload = json.dumps({"ref": branch, "inputs": {"apply": apply}})
 
     def latest_new_run():
         data = gh("api", f"{endpoint}/runs?event=workflow_dispatch&per_page=10")
@@ -175,7 +177,8 @@ def dispatch_dry_run(branch):
         response = subprocess.run(["gh", "api", "--method", "POST", endpoint + "/dispatches",
                                    "--input", "-"], input=payload, text=True, capture_output=True)
         if response.returncode == 0:
-            print("GitHub accepted the cloud dry-run request.", flush=True)
+            mode = "live" if apply else "dry-run"
+            print(f"GitHub accepted the cloud {mode} request.", flush=True)
             for _ in range(10):
                 run = latest_new_run()
                 if run:
@@ -209,11 +212,13 @@ def main():
                         help="Keep an existing SECURITY_BOT_TOKEN Actions secret")
     parser.add_argument("--resume", action="store_true",
                         help="Retry cloud validation without reinstalling files or changing the secret")
+    parser.add_argument("--apply", action="store_true",
+                        help="Start a live cloud run that publishes validated fixes without approvals")
     args = parser.parse_args()
     here = Path(__file__).resolve().parent
     if args.resume:
         repo = gh("api", f"repos/{REPO}")
-        dispatch_dry_run(repo["default_branch"])
+        dispatch_run(repo["default_branch"], apply=args.apply)
         return
     tests = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=here,
                            text=True, capture_output=True)
@@ -246,8 +251,7 @@ def main():
         print(f"Installed: https://github.com/{REPO}/commit/{created['sha']}")
     if not args.skip_secret:
         save_scheduled_token(args.prompt_token)
-    # Test the cloud installation without creating repair proposals or pushing.
-    dispatch_dry_run(branch)
+    dispatch_run(branch, apply=args.apply)
     print("Review that run. Scheduled runs apply passing fixes daily at 08:00 Pacific.")
 
 

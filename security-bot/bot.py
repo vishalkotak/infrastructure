@@ -147,7 +147,7 @@ def eligible(pr, repo, actor):
             and pr["head"]["repo"]["full_name"] == repo["full_name"]
             and pr["base"]["ref"] == repo["default_branch"]
             and pr["head"]["ref"].startswith(PREFIX)
-            and "[SECURITY]" in pr["title"]
+            and "[SECURITY]" in pr["title"].upper()
             and "security-bot" in {label["name"] for label in pr["labels"]})
 
 
@@ -252,10 +252,13 @@ cargo test --workspace --locked
     name = "security-check-" + os.urandom(8).hex()
     try:
         run(["docker", "run", "--name", name, "--rm", "--init", "--cap-drop=ALL",
+             "--user", f"{os.getuid()}:{os.getgid()}",
              "--security-opt=no-new-privileges", "--pids-limit=512", "--memory=10g",
              "--cpus=4", "--mount", f"type=bind,src={root},dst=/repo",
              "--workdir", "/repo/" + relative, "--env", "CI=true",
-             images[kind], "sh", "-c", scripts[kind]], timeout=timeout)
+             "--env", "HOME=/tmp", "--env", "CARGO_HOME=/tmp/cargo",
+             images[kind], "sh", "-c",
+             'export PATH="$CARGO_HOME/bin:$HOME/.local/bin:$PATH"\n' + scripts[kind]], timeout=timeout)
     finally:
         # Killing the Docker client alone does not stop a timed-out container.
         subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL,
@@ -411,7 +414,7 @@ def main():
                 candidates = [p for p in prs if eligible(p, repo, actor)]
                 # Bound daily work and prevent competing repairs of one branch.
                 for pr in candidates[:1]:
-                    item = {"pr": pr["html_url"]}
+                    item = {"pr": pr["html_url"], "status": "started"}
                     row["repairs"].append(item)
                     try:
                         if time.monotonic() - started > 4 * 3600:
@@ -419,7 +422,7 @@ def main():
                         item.update(repair(api, repo, pr, args.apply))
                         if item.get("post_validation", "").startswith("FAILED"):
                             failed = True
-                    except Blocked as exc:
+                    except (Blocked, OSError) as exc:
                         item.update(status="blocked", reason=str(exc))
                         failed = True
                 row["remaining_proposals"] = max(0, len(candidates) - 1)

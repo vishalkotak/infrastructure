@@ -55,6 +55,18 @@ For a separate token with narrower permissions, use `install.py --prompt-token`.
 To preserve a previously configured secret, use `install.py --skip-secret`.
 The instructions below describe the optional separate token.
 
+To deploy an update using the existing credential and immediately exercise live
+repairs without review approvals:
+
+```sh
+python3 /Users/vishal/code/github-security-bot/install.py --skip-secret --apply
+```
+
+Build/audit/test failures still block publication. Temporary repair branches and
+PRs provide an audit trail; passing fixes are published directly to the default
+branch by the controller. Renovate's own automerge stays disabled so it cannot
+publish a change before the controller tests its exact merge commit.
+
 The controller needs a persistent credential in GitHub Actions. The interactive
 ChatGPT GitHub connection is not a credential a scheduled workflow can reuse.
 
