@@ -250,6 +250,16 @@ cargo test --workspace --locked
     # Only repository contents are mounted. No host home, SSH agent, Docker
     # socket, GitHub token, or controller directory is visible to project code.
     name = "security-check-" + os.urandom(8).hex()
+    print(f"Validating {kind} project {relative} with container UID/GID {os.getuid()}:{os.getgid()}", flush=True)
+    probe = '''set -eu
+if ! probe=$(mktemp .security-bot-write.XXXXXX); then
+  echo 'Validation checkout is not writable by the container user' >&2
+  id >&2
+  ls -ld . >&2
+  exit 1
+fi
+rm "$probe"
+'''
     try:
         run(["docker", "run", "--name", name, "--rm", "--init", "--cap-drop=ALL",
              "--user", f"{os.getuid()}:{os.getgid()}",
@@ -258,7 +268,7 @@ cargo test --workspace --locked
              "--workdir", "/repo/" + relative, "--env", "CI=true",
              "--env", "HOME=/tmp", "--env", "CARGO_HOME=/tmp/cargo",
              images[kind], "sh", "-c",
-             'export PATH="$CARGO_HOME/bin:$HOME/.local/bin:$PATH"\n' + scripts[kind]], timeout=timeout)
+             'export PATH="$CARGO_HOME/bin:$HOME/.local/bin:$PATH"\n' + probe + scripts[kind]], timeout=timeout)
     finally:
         # Killing the Docker client alone does not stop a timed-out container.
         subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL,

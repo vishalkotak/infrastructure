@@ -1,4 +1,5 @@
 import subprocess
+import json
 import unittest
 from unittest.mock import patch
 
@@ -6,6 +7,19 @@ import install
 
 
 class InstallerCredentials(unittest.TestCase):
+    def test_stale_revision_is_cancelled_and_retry_uses_exact_deployed_commit(self):
+        old_run = {"id": 1, "head_sha": "a" * 40, "html_url": "https://github.com/test/run/1"}
+        new_run = {"id": 2, "head_sha": "b" * 40, "html_url": "https://github.com/test/run/2"}
+        replies = [subprocess.CompletedProcess([], 0, json.dumps({"workflow_run_id": 1}), ""),
+                   subprocess.CompletedProcess([], 0, json.dumps({"workflow_run_id": 2}), "")]
+        with patch("install.subprocess.run", side_effect=replies) as run, \
+                patch("install.gh", side_effect=[old_run, None, new_run]) as gh, \
+                patch("install.time.sleep"):
+            result = install.dispatch_run("main", apply=True, expected_sha="b" * 40)
+        self.assertEqual(result, new_run)
+        self.assertEqual(run.call_count, 2)
+        self.assertTrue(gh.call_args_list[1].args[-1].endswith("/runs/1/cancel"))
+
     def test_live_dispatch_enables_publication(self):
         new_run = {"created_at": "9999-01-01T00:00:00Z", "html_url": "https://github.com/test/run"}
         with patch("install.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run, \

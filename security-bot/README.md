@@ -34,6 +34,10 @@ python3 /Users/vishal/code/github-security-bot/install.py --resume
 The installer retries temporary dispatch failures and checks for a run created
 despite an error before retrying. Test fixture Git output is suppressed on
 successful installation; those tests only create disposable local repositories.
+It also verifies the run's `head_sha` matches the deployed revision. If GitHub
+dispatches an older revision while indexing a new commit, the installer cancels
+that specific stale run and retries; it does not report the old run as validation
+of the new code.
 
 The installer runs the tests, checks workflow authorization (requesting the
 additional `workflow` and `security_events` OAuth scopes through GitHub only if

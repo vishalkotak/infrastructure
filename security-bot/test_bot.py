@@ -77,6 +77,7 @@ class Gates(unittest.TestCase):
         self.assertEqual(command[command.index("--user") + 1], f"{os.getuid()}:{os.getgid()}")
         self.assertIn("HOME=/tmp", command)
         self.assertIn("CARGO_HOME=/tmp/cargo", command)
+        self.assertIn("mktemp .security-bot-write.", command[-1])
         self.assertNotIn(os.environ.get("SECURITY_BOT_TOKEN", "impossible-token-value"), " ".join(command))
 
     def test_forks_are_excluded_from_scans_and_renovate(self):

@@ -163,10 +163,23 @@ def save_scheduled_token(prompt=False):
     print("Scheduled credential saved directly to GitHub Actions.")
 
 
-def dispatch_run(branch, apply=False):
+def dispatch_run(branch, apply=False, expected_sha=None):
     endpoint = f"repos/{REPO}/actions/workflows/daily-security.yml"
     since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    payload = json.dumps({"ref": branch, "inputs": {"apply": apply}})
+    payload = json.dumps({"ref": branch, "inputs": {"apply": apply}, "return_run_details": True})
+
+    def accept_run(run):
+        if expected_sha and run.get("head_sha") != expected_sha:
+            # Cancel this specific dispatch, not an unrelated concurrent run.
+            gh("api", "--method", "POST", f"repos/{REPO}/actions/runs/{run['id']}/cancel")
+            print(f"Cancelled stale run {run['id']}: expected revision {expected_sha[:12]}, "
+                  f"got {run.get('head_sha', 'unknown')[:12]}. Retrying after indexing.", flush=True)
+            time.sleep(5)
+            return False
+        print(f"Cloud run: {run['html_url']}", flush=True)
+        if expected_sha:
+            print(f"Verified cloud run uses deployed revision {expected_sha}.", flush=True)
+        return True
 
     def latest_new_run():
         data = gh("api", f"{endpoint}/runs?event=workflow_dispatch&per_page=10")
@@ -179,14 +192,26 @@ def dispatch_run(branch, apply=False):
         if response.returncode == 0:
             mode = "live" if apply else "dry-run"
             print(f"GitHub accepted the cloud {mode} request.", flush=True)
+            try:
+                details = json.loads(response.stdout)
+            except ValueError:
+                details = {}
+            if details.get("workflow_run_id"):
+                run = gh("api", f"repos/{REPO}/actions/runs/{details['workflow_run_id']}")
+                if accept_run(run):
+                    return run
+                continue
             for _ in range(10):
                 run = latest_new_run()
                 if run:
-                    print(f"Cloud run: {run['html_url']}", flush=True)
-                    return run
+                    if accept_run(run):
+                        return run
+                    break
                 time.sleep(3)
-            print(f"Run is not visible yet; check https://github.com/{REPO}/actions", flush=True)
-            return None
+            else:
+                raise SystemExit("Dispatch accepted, but the run could not be verified. "
+                                 f"Check https://github.com/{REPO}/actions before retrying.")
+            continue
         retryable = any(f"HTTP {status}" in response.stderr for status in (404, 429, 500, 502, 503, 504))
         if not retryable:
             raise SystemExit("Controller and secret are installed, but dispatch failed:\n" + response.stderr)
@@ -198,8 +223,8 @@ def dispatch_run(branch, apply=False):
         except SystemExit:
             run = None
         if run:
-            print(f"Cloud run was created despite the dispatch error: {run['html_url']}", flush=True)
-            return run
+            if accept_run(run):
+                return run
     raise SystemExit("Controller and secret remain installed. GitHub dispatch still fails; "
                      "retry later with: python3 install.py --resume")
 
@@ -218,7 +243,8 @@ def main():
     here = Path(__file__).resolve().parent
     if args.resume:
         repo = gh("api", f"repos/{REPO}")
-        dispatch_run(repo["default_branch"], apply=args.apply)
+        ref = gh("api", f"repos/{REPO}/git/ref/heads/{repo['default_branch']}")
+        dispatch_run(repo["default_branch"], apply=args.apply, expected_sha=ref["object"]["sha"])
         return
     tests = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=here,
                            text=True, capture_output=True)
@@ -233,6 +259,7 @@ def main():
     branch = repo["default_branch"]
     ref = gh("api", f"repos/{REPO}/git/ref/heads/{branch}")
     parent = ref["object"]["sha"]
+    installed_sha = parent
     commit = gh("api", f"repos/{REPO}/git/commits/{parent}")
     tree = gh("api", "--method", "POST", f"repos/{REPO}/git/trees", payload={
         "base_tree": commit["tree"]["sha"],
@@ -248,10 +275,11 @@ def main():
         })
         gh("api", "--method", "PATCH", f"repos/{REPO}/git/refs/heads/{branch}",
            payload={"sha": created["sha"], "force": False})
+        installed_sha = created["sha"]
         print(f"Installed: https://github.com/{REPO}/commit/{created['sha']}")
     if not args.skip_secret:
         save_scheduled_token(args.prompt_token)
-    dispatch_run(branch, apply=args.apply)
+    dispatch_run(branch, apply=args.apply, expected_sha=installed_sha)
     print("Review that run. Scheduled runs apply passing fixes daily at 08:00 Pacific.")
 
 
