@@ -6,13 +6,13 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import (BigInteger, Column, DateTime, ForeignKey, Integer, MetaData, String, Table,
-                        Text, UniqueConstraint, create_engine, func, insert, select)
+                        Text, UniqueConstraint, case, create_engine, func, insert, or_, select, update)
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
 from .config import settings
-from .registry_rules import STAGES, PolicyError, check_artifact, check_metadata, check_name, parse_ref
-
+from .registry_rules import (STAGES, PolicyError, check_artifact, check_metadata, check_name,
+                             check_stage_change, check_tag_change, displaced_stage, parse_ref)
 metadata = MetaData()
 ID = BigInteger().with_variant(Integer, "sqlite")
 
@@ -238,3 +238,70 @@ def list_versions(model: str, stage: str | None = None, tag: str | None = None,
         key, _, value = tag.partition("=")
         out = [v for v in out if key in v.tags and (not value or v.tags[key] == value)]
     return out[:limit] if limit else out
+
+
+def _traffic(conn, version_ids: list[int]) -> dict[int, tuple[list[str], list[str]]]:
+    """(serving_on, deployed_on) per version id. Real query arrives with deployments."""
+    return {vid: ([], []) for vid in version_ids}
+
+
+def set_stage(model: str, version: int, stage: str, *, expect_production: int | None = None,
+              archive_existing: bool = True, force: bool = False) -> tuple[ModelVersionRecord, dict | None]:
+    """expect_production: the PRODUCTION version the caller saw (0 = none); None skips the check."""
+    stage = stage.upper()
+    mv = model_versions.c
+    with engine().begin() as conn:
+        model_id = conn.execute(select(models.c.id).where(models.c.name == model)
+                                .with_for_update()).scalar_one_or_none()
+        if model_id is None:
+            raise NotFound(f"model {model}")
+        rows = conn.execute(select(model_versions).where(
+            mv.model_id == model_id, or_(mv.version == version, mv.stage == "PRODUCTION"))).all()
+        target = next((r for r in rows if r.version == version), None)
+        if target is None:
+            raise NotFound(f"{model}@{version}")
+        prod = next((r for r in rows if r.stage == "PRODUCTION"), None)
+
+        if expect_production is not None and (prod.version if prod else 0) != expect_production:
+            seen = f"{model}@{expect_production}" if expect_production else "none"
+            now = f"{model}@{prod.version}" if prod else "none"
+            raise ConflictError(f"production is now {now}, not {seen}; re-read and retry")
+
+        traffic = _traffic(conn, [r.id for r in rows])
+        serving_on, deployed_on = traffic[target.id]
+        check_stage_change(target.stage, stage, serving_on=serving_on, deployed_on=deployed_on,
+                           deployable=settings.deployable_stages, force=force)
+        if stage == target.stage:
+            return _version(target, model), None
+
+        changes = {target.id: stage}
+        displaced = None
+        if stage == "PRODUCTION" and prod is not None:
+            to = displaced_stage(traffic[prod.id][0], archive_existing)
+            changes[prod.id] = to
+            displaced = {"ref": f"{model}@{prod.version}", "from": "PRODUCTION", "to": to}
+        conn.execute(update(model_versions).where(mv.id.in_(list(changes)))
+                     .values(stage=case(changes, value=mv.id), stage_updated_at=datetime.now(timezone.utc)))
+
+    record = _version(target, model)
+    record.stage = stage
+    return record, displaced
+
+
+def set_tags(model: str, version: int, add: dict | None = None,
+             remove: list[str] | None = None) -> ModelVersionRecord:
+    add, remove = add or {}, remove or []
+    check_tag_change(add, remove)
+    mv = model_versions.c
+    with engine().begin() as conn:
+        row = conn.execute(_versions_of(model).where(mv.version == version).with_for_update()).one_or_none()
+        if row is None:
+            _model_id(conn, model)
+            raise NotFound(f"{model}@{version}")
+        old = json.loads(row.tags)
+        tags = {k: v for k, v in {**old, **add}.items() if k not in remove}
+        if tags != old:
+            conn.execute(update(model_versions).where(mv.id == row.id).values(tags=json.dumps(tags)))
+    record = _version(row, model)
+    record.tags = tags
+    return record

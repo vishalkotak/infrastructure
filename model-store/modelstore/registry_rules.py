@@ -119,3 +119,10 @@ def check_metadata(metrics: dict, tags: dict) -> None:
             raise PolicyError(f"bad tag key {k!r}; use letters, digits, '_', '.', '-'")
         if not isinstance(v, str) or len(v) > 256:
             raise PolicyError(f"tag {k!r} must be a string of at most 256 chars")
+
+
+def check_tag_change(add: dict, remove: list[str]) -> None:
+    check_metadata({}, add)
+    both = sorted(set(add) & set(remove))
+    if both:
+        raise PolicyError(f"tag(s) both added and removed: {', '.join(both)}")
