@@ -1,0 +1,58 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: modelendpoints.modelstore.dev
+spec:
+  group: modelstore.dev
+  scope: Namespaced
+  names:
+    plural: modelendpoints
+    singular: modelendpoint
+    kind: ModelEndpoint
+    shortNames: [me]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Stable, type: string, jsonPath: .spec.stable.modelRef}
+        - {name: Canary, type: string, jsonPath: .spec.canary.modelRef}
+        - {name: Weight, type: integer, jsonPath: .spec.canary.weight}
+        - {name: Ready, type: boolean, jsonPath: .status.stable.ready}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [replicas]
+              # CEL for validation
+              x-kubernetes-validations:
+                - rule: "!has(self.canary) || has(self.stable)"
+                  message: a canary needs a stable version to compare against
+                - rule: "!has(self.canary) || !has(self.stable) || self.canary.version != self.stable.version"
+                  message: canary and stable must be different versions
+              properties:
+                replicas: {type: integer, minimum: 0, maximum: 100}
+                s3Endpoint: {type: string}
+                stable:
+                  type: object
+                  required: [version, modelRef, artifactUri]
+                  properties:
+                    version: {type: integer, minimum: 1}
+                    modelRef: {type: string}
+                    artifactUri: {type: string, pattern: "^s3://"}
+                canary:
+                  type: object
+                  required: [version, modelRef, artifactUri, replicas, weight]
+                  properties:
+                    version: {type: integer, minimum: 1}
+                    modelRef: {type: string}
+                    artifactUri: {type: string, pattern: "^s3://"}
+                    replicas: {type: integer, minimum: 1, maximum: 10}
+                    weight: {type: integer, minimum: 0, maximum: 100}
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
