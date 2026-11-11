@@ -1,6 +1,7 @@
 """Registry rules for references, stage changes and deploys."""
 from __future__ import annotations
 
+import math
 import re
 
 
@@ -19,10 +20,14 @@ TRANSITIONS = {
 
 _NAME = r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?"
 _REF = re.compile(rf"^(?P<model>{_NAME})@(?P<sel>\d+|latest|staging|production)$")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+_TAG_KEY = re.compile(r"[A-Za-z0-9_.-]{1,63}")
+
 
 def check_name(name: str) -> None:
     if not re.fullmatch(_NAME, name):
         raise PolicyError(f"bad name {name!r}; use lowercase letters, digits and '-', max 63 chars")
+
 
 def validate_deployable_stages(deployable: tuple[str, ...]) -> tuple[str, ...]:
     stages = tuple(s.strip().upper() for s in deployable if s.strip())
@@ -94,3 +99,23 @@ def check_deploy(kind: str, *, endpoint_model: str, version_model: str, version_
     if stage not in deployable:
         hint = {"NONE": "; stage it first", "ARCHIVED": "; re-qualify it through STAGING first"}.get(stage, "")
         raise PolicyError(f"{version_ref} is in stage {stage}; deployable stages are {', '.join(deployable)}{hint}")
+
+
+def check_artifact(uri: str, sha256: str, size_bytes: int) -> None:
+    if not uri.startswith("s3://") or len(uri) > 512:
+        raise PolicyError(f"bad artifact uri {uri!r}; expected s3://bucket/key, max 512 chars")
+    if not _SHA256.fullmatch(sha256):
+        raise PolicyError("sha256 must be 64 lowercase hex characters")
+    if size_bytes <= 0:
+        raise PolicyError("artifact is empty")
+
+
+def check_metadata(metrics: dict, tags: dict) -> None:
+    for k, v in metrics.items():
+        if not isinstance(k, str) or isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            raise PolicyError(f"metric {k!r} must be a finite number")
+    for k, v in tags.items():
+        if not isinstance(k, str) or not _TAG_KEY.fullmatch(k):
+            raise PolicyError(f"bad tag key {k!r}; use letters, digits, '_', '.', '-'")
+        if not isinstance(v, str) or len(v) > 256:
+            raise PolicyError(f"tag {k!r} must be a string of at most 256 chars")
