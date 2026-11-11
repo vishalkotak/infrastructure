@@ -4,9 +4,12 @@ import hashlib
 import io
 import logging
 import os
+import threading
 import time
+from contextlib import asynccontextmanager
 
 import torch
+from fastapi import FastAPI, HTTPException
 
 from demo_model import IN_FEATURES, build
 
@@ -55,3 +58,27 @@ def _startup() -> None:
         os._exit(1)  # crash so Kubernetes reports it
     state.update(model=model, faults=faults, ready=True, load_seconds=time.monotonic() - t0)
     log.info("loaded %s in %.1fs", ARTIFACT_URI, state["load_seconds"])
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logging.basicConfig(level=logging.INFO)
+    if not ARTIFACT_URI:
+        raise RuntimeError("ARTIFACT_URI is not set")
+    threading.Thread(target=_startup, daemon=True).start()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+
+@app.get("/ready")
+def ready():
+    if not state["ready"]:
+        raise HTTPException(503, "loading")
+    return {"ready": True, "load_seconds": state["load_seconds"]}

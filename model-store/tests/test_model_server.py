@@ -5,6 +5,7 @@ import types
 import pytest
 
 torch = pytest.importorskip("torch")
+pytest.importorskip("fastapi")
 
 import demo_model
 import model_server
@@ -174,3 +175,46 @@ def test_startup_exits_when_load_fails(startup):
     startup.setattr(model_server, "ARTIFACT_URI", uri_for(b"not a model"))
     with pytest.raises(Exited):
         model_server._startup()
+
+@pytest.fixture
+def client(startup):
+    from fastapi.testclient import TestClient
+    return TestClient(model_server.app)  # without `with`, startup code does not run
+
+
+def test_healthz_always_ok(client):
+    assert client.get("/healthz").json() == {"ok": True}
+
+
+def test_ready_is_503_while_loading(client):
+    r = client.get("/ready")
+    assert r.status_code == 503 and r.json()["detail"] == "loading"
+
+
+def test_ready_after_load(client):
+    model_server.state.update(ready=True, load_seconds=1.5)
+    assert client.get("/ready").json() == {"ready": True, "load_seconds": 1.5}
+
+
+def test_lifespan_loads_in_background(startup):
+    import threading
+
+    from fastapi.testclient import TestClient
+    done = threading.Event()
+
+    def fake_startup():
+        model_server.state.update(ready=True, load_seconds=0.0)
+        done.set()
+
+    startup.setattr(model_server, "_startup", fake_startup)
+    with TestClient(model_server.app) as c:
+        assert done.wait(timeout=5)
+        assert c.get("/ready").status_code == 200
+
+
+def test_lifespan_refuses_without_artifact(startup):
+    from fastapi.testclient import TestClient
+    startup.setattr(model_server, "ARTIFACT_URI", "")
+    with pytest.raises(RuntimeError, match="ARTIFACT_URI"):
+        with TestClient(model_server.app):
+            pass
