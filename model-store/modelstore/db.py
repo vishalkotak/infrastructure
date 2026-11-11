@@ -73,6 +73,9 @@ def _model(row) -> dict:
     return {"name": row.name, "owner": row.owner, "description": row.description,
             "created_at": str(row.created_at)}
 
+def check_model_exists(name: str) -> None:
+    with engine().connect() as conn:
+        _model_id(conn, name)
 
 def _model_id(conn, name: str) -> int:
     model_id = conn.execute(select(models.c.id).where(models.c.name == name)).scalar_one_or_none()
