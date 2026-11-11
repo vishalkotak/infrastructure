@@ -6,6 +6,39 @@ import install
 
 
 class InstallerCredentials(unittest.TestCase):
+    def test_installer_never_reads_or_enables_alerts_on_forks(self):
+        repos = [{"full_name": f"vishalkotak/{name}", "owner": {"login": "vishalkotak"}, **metadata}
+                 for name, metadata in [("original", {"fork": False}), ("forked", {"fork": True}),
+                                        ("unknown", {})]]
+        replies = [{"login": "vishalkotak"}, [repos], []]
+        with patch("install.credential_api", side_effect=replies) as api:
+            install.verify_alert_access("private")
+        self.assertEqual(api.call_count, 3)
+        self.assertIn("repos/vishalkotak/original/dependabot/alerts", api.call_args.args[1])
+
+    def test_waits_for_enabled_alerts_to_become_readable(self):
+        delayed = install.AlertAccessError("HTTP 403: Dependabot alerts are disabled for this repository.")
+        with patch("install.credential_api", side_effect=[delayed, delayed, []]) as api, \
+                patch("install.time.sleep") as sleep:
+            self.assertEqual(install.wait_for_alerts("private", "repos/x/y/dependabot/alerts"), [])
+        self.assertEqual(api.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_wait_does_not_retry_permission_denial(self):
+        with patch("install.credential_api", side_effect=install.AlertAccessError("HTTP 403: Resource not accessible")) as api, \
+                patch("install.time.sleep") as sleep:
+            with self.assertRaises(install.AlertAccessError):
+                install.wait_for_alerts("private", "repos/x/y/dependabot/alerts")
+        self.assertEqual(api.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_wait_stops_after_bound_without_claiming_success(self):
+        with patch("install.credential_api", side_effect=install.AlertAccessError("HTTP 403: alerts disabled")) as api, \
+                patch("install.time.sleep"):
+            with self.assertRaises(install.AlertAccessError):
+                install.wait_for_alerts("private", "repos/x/y/dependabot/alerts", attempts=3)
+        self.assertEqual(api.call_count, 3)
+
     def test_transient_dispatch_error_retries_without_reinstalling(self):
         replies = [subprocess.CompletedProcess([], 1, "", "HTTP 500"),
                    subprocess.CompletedProcess([], 0, "", "")]
@@ -74,7 +107,7 @@ class InstallerCredentials(unittest.TestCase):
 
     def test_explicitly_disabled_alerts_are_enabled_and_verified(self):
         replies = [{"login": "vishalkotak"},
-                   [[{"full_name": "vishalkotak/a", "owner": {"login": "vishalkotak"}}]],
+                   [[{"full_name": "vishalkotak/a", "owner": {"login": "vishalkotak"}, "fork": False}]],
                    install.AlertAccessError("HTTP 403: Dependabot alerts are disabled"), None, []]
         with patch("install.credential_api", side_effect=replies) as api:
             install.verify_alert_access("private")
@@ -82,7 +115,7 @@ class InstallerCredentials(unittest.TestCase):
 
     def test_permission_denial_does_not_try_to_enable_alerts(self):
         replies = [{"login": "vishalkotak"},
-                   [[{"full_name": "vishalkotak/a", "owner": {"login": "vishalkotak"}}]],
+                   [[{"full_name": "vishalkotak/a", "owner": {"login": "vishalkotak"}, "fork": False}]],
                    install.AlertAccessError("HTTP 403: Resource not accessible")]
         with patch("install.credential_api", side_effect=replies) as api:
             with self.assertRaises(install.AlertAccessError):

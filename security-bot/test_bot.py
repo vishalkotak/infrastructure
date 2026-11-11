@@ -19,9 +19,43 @@ class API:
 
 
 class Gates(unittest.TestCase):
+    def test_forks_are_excluded_from_scans_and_renovate(self):
+        repos = [{"full_name": f"{bot.OWNER}/{name}", "owner": {"login": bot.OWNER},
+                  "archived": False, "disabled": False, **metadata}
+                 for name, metadata in [("original", {"fork": False}), ("forked", {"fork": True}),
+                                        ("unknown", {})]]
+        calls = []
+
+        class FakeAPI:
+            def __init__(self, token):
+                pass
+
+            def request(self, path):
+                return {"login": bot.OWNER}
+
+            def pages(self, path):
+                calls.append(path)
+                return repos if path.startswith("/user/repos") else []
+
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = str(Path(directory) / "report.json")
+            with patch("bot.GitHub", FakeAPI), patch("bot.renovate") as renovate, \
+                    patch.dict(os.environ, {"SECURITY_BOT_TOKEN": "test-only"}), \
+                    patch("sys.argv", ["bot.py", "--report", report_path]):
+                self.assertEqual(bot.main(), 0)
+            self.assertEqual(renovate.call_args.args[0], [f"{bot.OWNER}/original"])
+            self.assertFalse(any("forked" in path or "unknown" in path for path in calls))
+            report = json.loads(Path(report_path).read_text())
+            self.assertTrue(report["repositories"][1]["status"].startswith("skipped"))
+
+    def test_publisher_rejects_forks_before_any_api_or_git_work(self):
+        for metadata in [{"fork": True}, {}]:
+            with self.assertRaises(bot.Blocked):
+                bot.repair(None, metadata, {}, True)
+
     def test_reported_api_failure_is_visible_in_job_log(self):
         repo = {"full_name": "x/y", "owner": {"login": bot.OWNER},
-                "archived": False, "disabled": False}
+                "archived": False, "disabled": False, "fork": False}
 
         class FakeAPI:
             def __init__(self, token):
@@ -97,7 +131,7 @@ class Gates(unittest.TestCase):
             self.assertEqual(bot.projects(root, ["member/Cargo.toml"]), {root: "rust"})
 
     def test_only_own_security_proposals_are_eligible(self):
-        repo = {"full_name": "x/y", "default_branch": "main"}
+        repo = {"full_name": "x/y", "default_branch": "main", "fork": False}
         pr = {"state": "open", "draft": False, "user": {"login": "actor"},
               "head": {"repo": {"full_name": "x/y"}, "ref": "security-bot/foo"},
               "base": {"ref": "main"}, "title": "Update foo [SECURITY]",
@@ -163,7 +197,7 @@ class Gates(unittest.TestCase):
             head = real_git(["rev-parse", "HEAD"], seed, capture=True)
             real_git(["push", "origin", "HEAD:refs/pull/1/head"], seed)
             pr = {"number": 1, "head": {"sha": head}, "state": "open"}
-            repo = {"full_name": "x/y", "default_branch": "main"}
+            repo = {"full_name": "x/y", "default_branch": "main", "fork": False}
 
             class FakeAPI:
                 token = "test-token-never-used"

@@ -74,6 +74,20 @@ def credential_api(token, path, method="GET", paginate=False):
     return body
 
 
+def wait_for_alerts(token, path, attempts=12):
+    for attempt in range(attempts):
+        try:
+            return credential_api(token, path)
+        except AlertAccessError as exc:
+            reason = str(exc).lower()
+            delayed = "http 403" in reason and any(term in reason for term in ("disabled", "not enabled"))
+            if not delayed or attempt == attempts - 1:
+                raise
+            print(f"Waiting for GitHub to initialize alerts ({attempt + 1}/{attempts}): {path.split('/dependabot')[0]}",
+                  flush=True)
+            time.sleep(5)
+
+
 def verify_alert_access(token):
     """Test the scheduled credential itself, not merely the installer's login."""
     actor = credential_api(token, "user")
@@ -82,9 +96,10 @@ def verify_alert_access(token):
     pages = credential_api(token, "user/repos?affiliation=owner&per_page=100", paginate=True)
     repos = [repo for page in pages for repo in page
              if repo["owner"]["login"].lower() == "vishalkotak"
+             and repo.get("fork") is False
              and not repo.get("archived") and not repo.get("disabled")]
     if not repos:
-        raise AlertAccessError("The scheduled credential cannot discover any owned repositories")
+        raise AlertAccessError("The scheduled credential cannot discover any active owned non-fork repositories")
     failures = []
     for repo in repos:
         path = f"repos/{repo['full_name']}/dependabot/alerts?per_page=1"
@@ -97,7 +112,7 @@ def verify_alert_access(token):
             if "HTTP 403" in reason and any(term in reason.lower() for term in ("disabled", "not enabled")):
                 try:
                     credential_api(token, f"repos/{repo['full_name']}/vulnerability-alerts", method="PUT")
-                    credential_api(token, path)
+                    wait_for_alerts(token, path)
                     print(f"Enabled and verified Dependabot alerts: {repo['full_name']}", flush=True)
                 except AlertAccessError as enable_error:
                     failures.append(str(enable_error))

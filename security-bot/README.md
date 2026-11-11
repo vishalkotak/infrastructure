@@ -1,7 +1,10 @@
 # Daily GitHub security repairs
 
-Controller for all repositories owned by **vishalkotak**, including forks and new
-repositories discovered on subsequent runs. Hosted by GitHub Actions in
+Controller for active, non-fork repositories owned by **vishalkotak**, including
+new repositories discovered on subsequent runs. Forks are excluded from scans,
+repairs, pushes, and installer alert-access checks. Repositories with missing fork
+metadata are also excluded. Renovate's fork processing is disabled, and the
+publisher independently rejects forks. Hosted by GitHub Actions in
 `vishalkotak/infrastructure`, daily at **08:00 America/Los_Angeles**, with automatic
 daylight-saving adjustment. Your Mac can be asleep or off. GitHub may delay or
 drop scheduled runs; this is not an exact-time or guaranteed-delivery scheduler.

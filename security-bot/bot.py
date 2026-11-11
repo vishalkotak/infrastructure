@@ -120,7 +120,8 @@ def dependency_file(name):
 
 
 def eligible(pr, repo, actor):
-    return (pr.get("state") == "open" and not pr.get("draft")
+    return (repo.get("fork") is False
+            and pr.get("state") == "open" and not pr.get("draft")
             and pr["user"]["login"] == actor
             and pr["head"]["repo"]["full_name"] == repo["full_name"]
             and pr["base"]["ref"] == repo["default_branch"]
@@ -241,6 +242,8 @@ cargo test --workspace --locked
 
 
 def repair(api, repo, pr, apply):
+    if repo.get("fork") is not False:
+        raise Blocked("Forked repositories and repositories with unknown fork status are excluded")
     full_name = repo["full_name"]
     number = pr["number"]
     prefix = f"/repos/{full_name}"
@@ -320,7 +323,7 @@ def renovate(repositories, token, dry_run, directory):
     directory.chmod(0o755)
     config = {
         "platform": "github", "repositories": repositories,
-        "onboarding": False, "requireConfig": "ignored", "forkProcessing": "enabled",
+        "onboarding": False, "requireConfig": "ignored", "forkProcessing": "disabled",
         "extends": ["security:only-security-updates"],
         "enabledManagers": ["npm", "pip_requirements", "pip_setup", "poetry", "pep621", "cargo"],
         "osvVulnerabilityAlerts": True, "branchPrefix": PREFIX,
@@ -358,7 +361,8 @@ def main():
     started = time.monotonic()
     try:
         with tempfile.TemporaryDirectory(prefix="security-renovate-") as temp:
-            active = [r["full_name"] for r in repos if not r["archived"] and not r["disabled"]]
+            active = [r["full_name"] for r in repos if r.get("fork") is False
+                      and not r["archived"] and not r["disabled"]]
             if not args.skip_renovate and active:
                 try:
                     renovate(active, token, not args.apply, Path(temp))
@@ -369,6 +373,9 @@ def main():
             name = repo["full_name"]
             row = {"repository": name, "repairs": []}
             report["repositories"].append(row)
+            if repo.get("fork") is not False:
+                row["status"] = "skipped: fork or unknown fork status"
+                continue
             if repo["archived"] or repo["disabled"]:
                 row["status"] = "read-only: archived or disabled"
                 continue
