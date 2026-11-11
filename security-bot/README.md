@@ -21,14 +21,32 @@ login succeeded, run:
 python3 /Users/vishal/code/github-security-bot/install.py
 ```
 
+If upload and secret setup succeeded but GitHub returned HTTP 500 starting the
+first run, resume just the cloud validation with:
+
+```sh
+python3 /Users/vishal/code/github-security-bot/install.py --resume
+```
+
+The installer retries temporary dispatch failures and checks for a run created
+despite an error before retrying. Test fixture Git output is suppressed on
+successful installation; those tests only create disposable local repositories.
+
 The installer runs the tests, checks workflow authorization (requesting the
-additional OAuth scope through GitHub only if needed), uploads the files in one
+additional `workflow` and `security_events` OAuth scopes through GitHub only if
+needed), uploads the files in one
 commit, saves the existing authenticated CLI credential directly as the Actions
 secret `SECURITY_BOT_TOKEN`, and requests a cloud dry run. It never prints the
 token, saves it in source files, or puts it in a command-line argument. This
 reuses the CLI credential's permissions for unattended runs; revoking that
 credential also stops the bot. Repository protection rules can reject
 installation; the installer does not disable them.
+
+Before saving a scheduled token it verifies that token can list Dependabot
+alerts in every discovered active repository. If GitHub explicitly reports that
+alerts are disabled, it enables vulnerability alerts and verifies access again.
+Other HTTP 403 responses remain errors. This distinguishes a disabled feature
+from missing authorization and prevents another cloud run with unreadable alerts.
 
 For a separate token with narrower permissions, use `install.py --prompt-token`.
 To preserve a previously configured secret, use `install.py --skip-secret`.

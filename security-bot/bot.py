@@ -47,7 +47,14 @@ class GitHub:
                 if method == "GET" and exc.code in (429, 502, 503, 504) and attempt < 2:
                     time.sleep(2 ** attempt)
                     continue
-                raise Blocked(f"GitHub {method} {path}: HTTP {exc.code}") from None
+                message = ""
+                try:
+                    body = json.loads(exc.read(65536))
+                    message = str(body.get("message", ""))[:500]
+                except (ValueError, OSError):
+                    pass
+                detail = f": {message}" if message else ""
+                raise Blocked(f"GitHub {method} {path}: HTTP {exc.code}{detail}") from None
             except (URLError, TimeoutError):
                 if method == "GET" and attempt < 2:
                     time.sleep(2 ** attempt)
@@ -394,6 +401,18 @@ def main():
                 failed = True
     finally:
         Path(args.report).write_text(json.dumps(report, indent=2) + "\n")
+        # Keep the actual failure reasons in the job log as well as the artifact.
+        # No credentials, source files, or secret-scanning matches are included.
+        for error in report["errors"]:
+            print("Controller error: " + error, flush=True)
+        for row in report["repositories"]:
+            if row.get("reason"):
+                print(f"{row['repository']}: {row['reason']}", flush=True)
+            for item in row["repairs"]:
+                if item.get("reason") or item.get("post_validation", "").startswith("FAILED"):
+                    print(f"{row['repository']}: {item.get('reason', item.get('post_validation'))}", flush=True)
+        if failed:
+            print(f"Security run incomplete; details saved in {args.report}", flush=True)
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
         if summary:
             with open(summary, "a") as f:

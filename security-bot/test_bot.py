@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import io
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import bot
@@ -17,6 +19,35 @@ class API:
 
 
 class Gates(unittest.TestCase):
+    def test_reported_api_failure_is_visible_in_job_log(self):
+        repo = {"full_name": "x/y", "owner": {"login": bot.OWNER},
+                "archived": False, "disabled": False}
+
+        class FakeAPI:
+            def __init__(self, token):
+                pass
+
+            def request(self, path):
+                return {"login": bot.OWNER}
+
+            def pages(self, path):
+                if path.startswith("/user/repos"):
+                    return [repo]
+                raise bot.Blocked("GitHub alert API: HTTP 403: missing permission")
+
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = str(Path(directory) / "report.json")
+            output = io.StringIO()
+            with patch("bot.GitHub", FakeAPI), \
+                    patch.dict(os.environ, {"SECURITY_BOT_TOKEN": "test-only"}), \
+                    patch("sys.argv", ["bot.py", "--skip-renovate", "--report", report_path]), \
+                    redirect_stdout(output):
+                result = bot.main()
+            self.assertEqual(result, 1)
+            self.assertIn("HTTP 403: missing permission", output.getvalue())
+            self.assertNotIn("test-only", output.getvalue())
+            self.assertEqual(json.loads(Path(report_path).read_text())["repositories"][0]["status"], "coverage-gap")
+
     def test_failed_or_incomplete_ci_blocks(self):
         for status, conclusion in [("in_progress", None), ("completed", "failure"),
                                    ("completed", "skipped"), ("completed", "neutral")]:
