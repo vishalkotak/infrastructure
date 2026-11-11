@@ -17,8 +17,12 @@ TRANSITIONS = {
     "ARCHIVED": {"STAGING"},
 }
 
-_REF = re.compile(r"^(?P<model>[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)@(?P<sel>\d+|latest|staging|production)$")
+_NAME = r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?"
+_REF = re.compile(rf"^(?P<model>{_NAME})@(?P<sel>\d+|latest|staging|production)$")
 
+def check_name(name: str) -> None:
+    if not re.fullmatch(_NAME, name):
+        raise PolicyError(f"bad name {name!r}; use lowercase letters, digits and '-', max 63 chars")
 
 def validate_deployable_stages(deployable: tuple[str, ...]) -> tuple[str, ...]:
     stages = tuple(s.strip().upper() for s in deployable if s.strip())
