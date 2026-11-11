@@ -4,6 +4,9 @@ import types
 
 import pytest
 
+torch = pytest.importorskip("torch")
+
+import demo_model
 import model_server
 
 
@@ -66,3 +69,108 @@ def test_fetch_uses_s3_endpoint(fake_s3):
 def test_fetch_then_verify(fake_s3):
     uri = uri_for(b"weights")
     model_server.verify(model_server.fetch(uri), uri)
+
+def model_bytes(tmp_path, **kw) -> bytes:
+    p = tmp_path / "m.pt"
+    demo_model.save(str(p), **kw)
+    return p.read_bytes()
+
+
+def to_bytes(obj) -> bytes:
+    import io
+    buf = io.BytesIO()
+    torch.save(obj, buf)
+    return buf.getvalue()
+
+
+def test_load_returns_working_model(tmp_path):
+    model, faults = model_server.load_model(model_bytes(tmp_path, seed=1), warmup=0)
+    assert faults == {}
+    assert not model.training
+    assert model(torch.zeros(3, demo_model.IN_FEATURES)).shape == (3, 1)
+
+
+def test_load_returns_faults(tmp_path):
+    _, faults = model_server.load_model(model_bytes(tmp_path, variant="slow"), warmup=0)
+    assert faults == {"latency_ms": 120}
+
+
+def test_file_without_faults(tmp_path):
+    blob = to_bytes({"state_dict": demo_model.build().state_dict()})
+    assert model_server.load_model(blob, warmup=0)[1] == {}
+
+
+def test_warmup_runs_the_model(tmp_path, monkeypatch):
+    calls = []
+
+    def counted_build():
+        m = demo_model.build()
+        m.register_forward_hook(lambda *_: calls.append(1))
+        return m
+
+    monkeypatch.setattr(model_server, "build", counted_build)
+    model_server.load_model(model_bytes(tmp_path), warmup=5)
+    assert len(calls) == 5
+
+
+@pytest.mark.parametrize("blob", [
+    b"not a model",
+    to_bytes({"weights": {}}),                                         # no state_dict
+    to_bytes({"state_dict": torch.nn.Linear(16, 1).state_dict()}),     # wrong architecture
+])
+def test_bad_files_fail(blob):
+    with pytest.raises(Exception):
+        model_server.load_model(blob, warmup=0)
+
+
+class Exited(Exception):
+    pass
+
+
+@pytest.fixture
+def startup(monkeypatch, tmp_path):
+    """Run _startup against an in-memory artifact; os._exit raises instead of killing pytest."""
+    blob = model_bytes(tmp_path, variant="errors")
+    monkeypatch.setattr(model_server, "ARTIFACT_URI", uri_for(blob))
+    monkeypatch.setattr(model_server, "WARMUP_PASSES", 0)
+    monkeypatch.setattr(model_server, "fetch", lambda uri: blob)
+    monkeypatch.setattr(model_server, "state", {"model": None, "faults": {}, "ready": False, "load_seconds": None})
+
+    def fake_exit(code):
+        raise Exited(code)
+
+    monkeypatch.setattr(model_server.os, "_exit", fake_exit)
+    return monkeypatch
+
+
+def test_startup_marks_ready(startup):
+    model_server._startup()
+    st = model_server.state
+    assert st["ready"] and st["model"] is not None
+    assert st["faults"] == {"error_rate": 0.15}
+    assert st["load_seconds"] >= 0
+
+
+def test_startup_exits_on_bad_checksum(startup):
+    startup.setattr(model_server, "ARTIFACT_URI", "s3://models/fraud-model/" + "a" * 64)
+    with pytest.raises(Exited) as e:
+        model_server._startup()
+    assert e.value.args == (1,)
+    assert not model_server.state["ready"]
+
+
+def test_startup_exits_when_download_fails(startup):
+    def broken(uri):
+        raise ConnectionError("minio down")
+
+    startup.setattr(model_server, "fetch", broken)
+    with pytest.raises(Exited):
+        model_server._startup()
+    assert not model_server.state["ready"]
+
+
+def test_startup_exits_when_load_fails(startup):
+    startup.setattr(model_server, "fetch", lambda uri: b"not a model")
+    startup.setattr(model_server, "ARTIFACT_URI", uri_for(b"not a model"))
+    with pytest.raises(Exited):
+        model_server._startup()
