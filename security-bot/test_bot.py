@@ -10,6 +10,57 @@ from unittest.mock import patch
 import bot
 
 
+class Response:
+    def __init__(self, data, link=""):
+        self.data = data
+        self.headers = {"Link": link}
+
+    def read(self):
+        return json.dumps(self.data).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
+class Pagination(unittest.TestCase):
+    def test_dependabot_uses_server_cursor_and_never_invents_page_parameter(self):
+        url = "https://api.github.com/repos/x/y/dependabot/alerts?state=open&per_page=100&after=cursor123"
+        replies = [Response([{"number": 1}], f'<{url}>; rel="next"'), Response([{"number": 2}])]
+        with patch("bot.urlopen", side_effect=replies) as request:
+            rows = bot.GitHub("test-only").pages("/repos/x/y/dependabot/alerts?state=open")
+        self.assertEqual([r["number"] for r in rows], [1, 2])
+        first_url = request.call_args_list[0].args[0].full_url
+        self.assertNotIn("page=", first_url.replace("per_page=", ""))
+        self.assertEqual(request.call_args_list[1].args[0].full_url, url)
+
+    def test_numbered_endpoints_follow_link_header_too(self):
+        replies = [Response({"check_runs": [1]}, '<https://api.github.com/checks?page=2>; rel="next"'),
+                   Response({"check_runs": [2]})]
+        with patch("bot.urlopen", side_effect=replies):
+            self.assertEqual(bot.GitHub("test-only").pages("/checks", "check_runs"), [1, 2])
+
+    def test_full_page_without_next_link_does_not_make_another_request(self):
+        with patch("bot.urlopen", return_value=Response(list(range(100)))) as request:
+            self.assertEqual(len(bot.GitHub("test-only").pages("/alerts")), 100)
+        self.assertEqual(request.call_count, 1)
+
+    def test_pagination_cannot_send_credentials_to_another_host(self):
+        with patch("bot.urlopen", return_value=Response([], '<https://evil.example/steal>; rel="next"')) as request:
+            with self.assertRaises(bot.Blocked):
+                bot.GitHub("test-only").pages("/alerts")
+        self.assertEqual(request.call_count, 1)
+
+    def test_repeated_link_fails_instead_of_truncating_coverage(self):
+        link = '<https://api.github.com/alerts?per_page=100>; rel="next"'
+        with patch("bot.urlopen", return_value=Response([1], link)) as request:
+            with self.assertRaises(bot.Blocked):
+                bot.GitHub("test-only").pages("/alerts")
+        self.assertEqual(request.call_count, 1)
+
+
 class API:
     def __init__(self, checks=(), statuses=()):
         self.checks, self.statuses = list(checks), list(statuses)

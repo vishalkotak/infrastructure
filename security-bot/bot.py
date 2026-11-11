@@ -11,6 +11,7 @@ import time
 from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit
 
 OWNER = "vishalkotak"
 RENOVATE_IMAGE = "ghcr.io/renovatebot/renovate:44.234.1-full"
@@ -26,7 +27,7 @@ class GitHub:
     def __init__(self, token):
         self.token = token
 
-    def request(self, path, method="GET", data=None):
+    def request(self, path, method="GET", data=None, with_next=False):
         if not path.startswith("/") or path.startswith("//"):
             raise ValueError("Only GitHub API paths are allowed")
         req = Request("https://api.github.com" + path,
@@ -42,7 +43,17 @@ class GitHub:
             try:
                 with urlopen(req, timeout=60) as response:
                     body = response.read()
-                    return json.loads(body) if body else None
+                    data = json.loads(body) if body else None
+                    if not with_next:
+                        return data
+                    match = re.search(r'<([^>]+)>;\s*rel="next"', response.headers.get("Link", ""))
+                    next_path = None
+                    if match:
+                        target = urlsplit(urljoin("https://api.github.com" + path, match.group(1)))
+                        if target.scheme != "https" or target.netloc != "api.github.com":
+                            raise Blocked("Refusing a pagination link outside the GitHub API")
+                        next_path = target.path + ("?" + target.query if target.query else "")
+                    return data, next_path
             except HTTPError as exc:
                 if method == "GET" and exc.code in (429, 502, 503, 504) and attempt < 2:
                     time.sleep(2 ** attempt)
@@ -63,13 +74,23 @@ class GitHub:
 
     def pages(self, path, key=None):
         result = []
-        separator = "&" if "?" in path else "?"
-        for page in range(1, 1001):
-            data = self.request(f"{path}{separator}per_page=100&page={page}")
+        parsed = urlsplit(path)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query.setdefault("per_page", "100")
+        path = parsed.path + "?" + urlencode(query)
+        visited = set()
+        for _ in range(1000):
+            if path in visited:
+                raise Blocked("Pagination cycle detected; coverage is incomplete")
+            visited.add(path)
+            # Dependabot uses cursors; other endpoints use numbered pages.
+            # Following GitHub's Link header supports both without guessing.
+            data, next_path = self.request(path, with_next=True)
             rows = data[key] if key else data
             result.extend(rows)
-            if len(rows) < 100:
+            if not next_path:
                 return result
+            path = next_path
         raise Blocked("Pagination limit reached; coverage is incomplete")
 
 

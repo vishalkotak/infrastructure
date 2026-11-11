@@ -55,6 +55,18 @@ class AlertAccessError(RuntimeError):
     pass
 
 
+def verify_controller_client(token, repos):
+    # Exercise the actual production client and its pagination against live
+    # endpoints, rather than relying only on the CLI's separate HTTP client.
+    from bot import GitHub, Blocked
+    client = GitHub(token)
+    try:
+        for repo in repos:
+            client.pages(f"/repos/{repo['full_name']}/dependabot/alerts?state=open")
+    except Blocked as exc:
+        raise AlertAccessError("Production API client preflight failed: " + str(exc)) from None
+
+
 def credential_api(token, path, method="GET", paginate=False):
     command = ["gh", "api", "--method", method, path]
     if paginate:
@@ -120,6 +132,7 @@ def verify_alert_access(token):
                 failures.append(reason)
     if failures:
         raise AlertAccessError("Scheduled credential cannot read all repository alerts:\n" + "\n".join(failures))
+    verify_controller_client(token, repos)
     print(f"Verified scheduled credential can read Dependabot alerts in {len(repos)} repositories.", flush=True)
 
 

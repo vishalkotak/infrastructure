@@ -11,7 +11,7 @@ class InstallerCredentials(unittest.TestCase):
                  for name, metadata in [("original", {"fork": False}), ("forked", {"fork": True}),
                                         ("unknown", {})]]
         replies = [{"login": "vishalkotak"}, [repos], []]
-        with patch("install.credential_api", side_effect=replies) as api:
+        with patch("install.credential_api", side_effect=replies) as api, patch("install.verify_controller_client"):
             install.verify_alert_access("private")
         self.assertEqual(api.call_count, 3)
         self.assertIn("repos/vishalkotak/original/dependabot/alerts", api.call_args.args[1])
@@ -109,7 +109,7 @@ class InstallerCredentials(unittest.TestCase):
         replies = [{"login": "vishalkotak"},
                    [[{"full_name": "vishalkotak/a", "owner": {"login": "vishalkotak"}, "fork": False}]],
                    install.AlertAccessError("HTTP 403: Dependabot alerts are disabled"), None, []]
-        with patch("install.credential_api", side_effect=replies) as api:
+        with patch("install.credential_api", side_effect=replies) as api, patch("install.verify_controller_client"):
             install.verify_alert_access("private")
         self.assertEqual(api.call_args_list[-2].kwargs["method"], "PUT")
 
