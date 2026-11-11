@@ -1,0 +1,45 @@
+[tool.poetry]
+name = "model-store"
+version = "0.1.0"
+description = "Model Store: a model registry, deployment control plane and GPU placement layer, built for a laptop"
+authors = []
+packages = [{ include = "modelstore" }]
+
+[tool.poetry.scripts]
+ms = "modelstore.cli:main"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+fastapi = "0.115.6"
+uvicorn = { version = "0.34.0", extras = ["standard"] }
+pydantic = "2.10.4"
+temporalio = "1.9.0"
+SQLAlchemy = "2.0.36"
+psycopg = { version = "3.2.3", extras = ["binary"] }
+kubernetes = "31.0.0"
+kopf = "1.37.4"
+httpx = "0.28.1"
+boto3 = "1.35.90"
+prometheus-client = "0.21.1"
+# Use TiDB instead of Postgres: `poetry install --extras tidb`
+PyMySQL = { version = "1.1.1", optional = true }
+
+[tool.poetry.extras]
+tidb = ["PyMySQL"]
+
+# Only needed to build demo model artifacts: `poetry install --with demo`
+[tool.poetry.group.demo]
+optional = true
+
+[tool.poetry.group.demo.dependencies]
+torch = "2.5.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "8.3.4"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
