@@ -123,9 +123,16 @@ CI checks block publication. Missing tests are not interpreted as passing tests.
 The candidate is merged with the current default branch locally. The exact
 resulting commit is saved outside the test container before testing:
 
-- npm: `npm ci --ignore-scripts`, a clean `npm audit`, and available build/test
+- npm: first repair remaining transitive findings with `npm audit fix
+  --package-lock-only --ignore-scripts` in a separate directory containing only
+  the manifests. Declared dependency ranges must stay unchanged. Commit the
+  resulting lockfile before validation, then `npm ci --ignore-scripts`, a clean `npm audit`, and available build/test
   scripts. A project with neither test nor build fails validation.
-- Python: install using Poetry, uv, or pip; a clean `pip-audit`; and pytest.
+- Python: choose Python 3.13 or newer when the manifest requires it; otherwise
+  default to 3.12. Install using Poetry, uv, or pip; a clean `pip-audit`; and pytest.
+  Poetry dependency environments use `--no-root` to support repositories that
+  are collections of scripts rather than installable packages; source roots are
+  placed on `PYTHONPATH` for testing.
   No tests collected, unsupported project setup, or dependency installation
   failures block publication. Multiple requirements files are conservatively
   installed together; projects with incompatible environment-specific files

@@ -70,6 +70,43 @@ class API:
 
 
 class Gates(unittest.TestCase):
+    def test_python_image_honors_newer_project_minimum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "pyproject.toml").write_text('[tool.poetry.dependencies]\npython = "^3.13"\n')
+            self.assertEqual(bot.python_image(project), "python:3.13-bookworm")
+            (project / "pyproject.toml").write_text('[tool.poetry.dependencies]\npython = "^3.10"\n')
+            self.assertEqual(bot.python_image(project), "python:3.12-bookworm")
+
+    def test_npm_preparation_only_copies_repaired_lockfile_back(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "package.json").write_text('{"dependencies":{}}')
+            (project / "package-lock.json").write_text('{"lockfileVersion":3}')
+
+            def prepare(root, selected, kind, **kwargs):
+                self.assertEqual(root, selected)
+                self.assertTrue(kwargs["prepare"])
+                self.assertEqual({p.name for p in root.iterdir()}, {"package.json", "package-lock.json"})
+                (root / "package-lock.json").write_text('{"lockfileVersion":3,"fixed":true}')
+
+            with patch("bot.container", side_effect=prepare):
+                self.assertTrue(bot.prepare_npm(project))
+            self.assertTrue(json.loads((project / "package-lock.json").read_text())["fixed"])
+
+    def test_npm_preparation_rejects_manifest_range_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "package.json").write_text('{}')
+            (project / "package-lock.json").write_text('{}')
+
+            def prepare(root, *args, **kwargs):
+                (root / "package.json").write_text('{"unexpected":true}')
+
+            with patch("bot.container", side_effect=prepare), self.assertRaises(bot.Blocked):
+                bot.prepare_npm(project)
+            self.assertEqual((project / "package.json").read_text(), '{}')
+
     def test_validation_containers_use_runner_uid_and_disposable_home(self):
         with patch("bot.run") as run, patch("bot.subprocess.run"):
             bot.container(Path("/tmp/repo"), Path("/tmp/repo/project"), "python")
@@ -281,7 +318,8 @@ class Gates(unittest.TestCase):
 
             def fake_test(target, project, kind, timeout=900):
                 calls.append(target.name)
-                self.assertEqual(json.loads((target / "package-lock.json").read_text()), {"fixed": True})
+                self.assertEqual(json.loads((target / "package-lock.json").read_text()),
+                                 {"fixed": True, "transitive_fixed": True})
                 if target.name == "target":
                     # Simulate repository code modifying its own checkout and
                     # committing a different result during the first test run.
@@ -289,14 +327,19 @@ class Gates(unittest.TestCase):
                     real_git(["-c", "user.name=Test", "-c", "user.email=test@example.com",
                               "commit", "-am", "tampered"], target)
 
-            with patch("bot.git", side_effect=local_git), patch("bot.container", side_effect=fake_test):
+            def prepare_transitive(project):
+                (project / "package-lock.json").write_text('{"fixed":true,"transitive_fixed":true}')
+                return True
+
+            with patch("bot.git", side_effect=local_git), patch("bot.container", side_effect=fake_test), \
+                    patch("bot.prepare_npm", side_effect=prepare_transitive):
                 result = bot.repair(FakeAPI(), repo, pr, True)
             self.assertEqual(result["post_validation"], "passed")
             self.assertEqual(calls, ["target", "post"])
             published = real_git(["rev-parse", "refs/heads/main"], remote, capture=True)
             self.assertEqual(result["commit"], published)
             contents = real_git(["show", published + ":package-lock.json"], remote, capture=True)
-            self.assertEqual(json.loads(contents), {"fixed": True})
+            self.assertEqual(json.loads(contents), {"fixed": True, "transitive_fixed": True})
             self.assertNotEqual(base, published)
 
 

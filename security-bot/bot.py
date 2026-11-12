@@ -8,6 +8,8 @@ import re
 import subprocess
 import tempfile
 import time
+import shutil
+import tomllib
 from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -202,9 +204,25 @@ def projects(root, changed):
     return found
 
 
-def container(root, project, kind, timeout=900):
+def python_image(project):
+    manifest = project / "pyproject.toml"
+    if manifest.is_symlink():
+        raise Blocked("Symlinked Python manifests are not supported")
+    if not manifest.is_file():
+        return "python:3.12-bookworm"
+    metadata = tomllib.loads(manifest.read_text())
+    constraint = metadata.get("project", {}).get("requires-python") or metadata.get(
+        "tool", {}).get("poetry", {}).get("dependencies", {}).get("python", "")
+    if isinstance(constraint, dict):
+        constraint = constraint.get("version", "")
+    minimum = re.search(r"(?:\^|>=|==)?\s*3\.(\d+)", str(constraint))
+    minor = max(12, int(minimum.group(1))) if minimum else 12
+    return f"python:3.{minor}-bookworm"
+
+
+def container(root, project, kind, timeout=900, prepare=False):
     relative = project.relative_to(root).as_posix()
-    images = {"node": "node:22-bookworm", "python": "python:3.12-bookworm", "rust": "rust:1-bookworm"}
+    images = {"node": "node:22-bookworm", "python": python_image(project), "rust": "rust:1-bookworm"}
     scripts = {
         "node": r'''set -eu
 npm ci --ignore-scripts --no-audit
@@ -217,7 +235,8 @@ if node -e 'process.exit(require("./package.json").scripts?.test ? 0 : 1)'; then
 python -m pip install --disable-pip-version-check pytest pip-audit
 if [ -f poetry.lock ]; then
   python -m pip install poetry
-  poetry install --no-interaction
+  poetry install --no-root --no-interaction
+  export PYTHONPATH="$PWD:$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
   poetry run python -m pip install pytest pip-audit
   poetry run python -m pip_audit --disable-pip
   poetry run python -m pytest
@@ -247,6 +266,10 @@ cargo audit
 cargo test --workspace --locked
 ''',
     }
+    if prepare:
+        if kind != "node":
+            raise Blocked("Unsupported preparation phase")
+        scripts[kind] = "set -eu\nnpm audit fix --package-lock-only --ignore-scripts --no-fund\n"
     # Only repository contents are mounted. No host home, SSH agent, Docker
     # socket, GitHub token, or controller directory is visible to project code.
     name = "security-check-" + os.urandom(8).hex()
@@ -273,6 +296,31 @@ rm "$probe"
         # Killing the Docker client alone does not stop a timed-out container.
         subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, timeout=30, check=False)
+
+
+def prepare_npm(project):
+    """Repair transitive findings without exposing the checkout or .git to npm."""
+    with tempfile.TemporaryDirectory(prefix="security-npm-") as directory:
+        work = Path(directory)
+        for name in ("package.json", "package-lock.json"):
+            source = project / name
+            if source.is_symlink():
+                raise Blocked("Symlinked npm manifests are not supported")
+            shutil.copyfile(source, work / name)
+        original_manifest = (work / "package.json").read_bytes()
+        container(work, work, "node", prepare=True)
+        output = work / "package-lock.json"
+        if output.is_symlink() or (work / "package.json").is_symlink():
+            raise Blocked("npm preparation produced symlinked output")
+        if (work / "package.json").read_bytes() != original_manifest:
+            raise Blocked("npm audit fix unexpectedly changed declared dependency ranges")
+        repaired = output.read_text()
+        json.loads(repaired)
+        destination = project / "package-lock.json"
+        if destination.read_text() == repaired:
+            return False
+        destination.write_text(repaired)
+        return True
 
 
 def repair(api, repo, pr, apply):
@@ -307,12 +355,21 @@ def repair(api, repo, pr, apply):
         git(["-c", "user.name=Security Repair Bot", "-c",
              f"user.email={OWNER}@users.noreply.github.com", "merge", "--no-ff",
              "--no-edit", "-m", f"Merge security repair #{number}", head], target)
+        selected = [(p.relative_to(target).as_posix(), kind)
+                    for p, kind in projects(target, changed).items()]
+        added_locks = []
+        for relative, kind in selected:
+            if kind == "node" and prepare_npm(target / relative):
+                added_locks.append((Path(relative) / "package-lock.json").as_posix())
+        if added_locks:
+            git(["add", "--", *added_locks], target)
+            git(["-c", "user.name=Security Repair Bot", "-c",
+                 f"user.email={OWNER}@users.noreply.github.com", "commit", "-m",
+                 "Fix remaining npm dependency vulnerabilities"], target)
         validated = safe_sha(git(["rev-parse", "HEAD"], target, capture=True))
         # Save the exact commit in a separate bare repo BEFORE running any
         # project code. Project code cannot alter the objects later published.
         git(["fetch", str(target), "HEAD:refs/heads/validated"], stage)
-        selected = [(p.relative_to(target).as_posix(), kind)
-                    for p, kind in projects(target, changed).items()]
         deadline = time.monotonic() + 900
         for relative, kind in selected:
             container(target, target / relative, kind, max(1, int(deadline - time.monotonic())))
@@ -362,6 +419,7 @@ def renovate(repositories, token, dry_run, directory):
         "enabledManagers": ["npm", "pip_requirements", "pip_setup", "poetry", "pep621", "cargo"],
         "osvVulnerabilityAlerts": True, "branchPrefix": PREFIX,
         "labels": ["security-bot"], "automerge": False,
+        "separateMajorMinor": False,
         "allowScripts": False, "allowPlugins": False, "allowedCommands": [],
         "ignoreScripts": True, "dependencyDashboard": False,
         "vulnerabilityAlerts": {"enabled": True, "groupName": "security fixes",
