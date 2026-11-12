@@ -1,49 +1,35 @@
 # Downstream Detector
 
-Checks whether a proposed Rust dependency change breaks the software that depends on it.
+**Catch the break before your users do.** A Rust crate can keep the same API and still break the apps that depend on it. Downstream Detector takes a pull request, finds real consumers, runs their tests in isolated jobs, and shows you what failed.
 
 ## Why I built it
 
-I work on platform problems where one shared library serves many product teams. A change can keep compiling while subtly breaking a consumer. I wanted a way to submit a pull request and learn which downstream projects fail before the change ships.
+Platform teams ship shared libraries to many product teams. Reviewing the crate alone can't tell you whether those teams' software still works. I wanted one PR link to trigger that check automatically.
 
-## How to use it
-
-The PR checker needs a one-time setup of the execution backend, credentials, and (for a private company) organization settings. After that, pass it the pull request URL:
+## Try it
 
 ```sh
 downstream-detector check https://github.com/OWNER/REPO/pull/123
 ```
 
-It identifies the changed Rust crate, discovers and ranks consumers, runs their tests in isolated jobs, and prints a short result summary. Full test output and backtraces are saved under `.downstream-detector/reports/`. Public consumer discovery uses crates.io; set `DETECTOR_GITHUB_ORG` and a GitHub token to include company repositories found through code search. For GitHub Enterprise Server, also set `DETECTOR_GITHUB_HOST`. The tool does not automatically configure company credentials or an internal Cargo registry.
+It discovers and ranks consumers, runs their tests, and saves full logs. Setup is one-time; see [private Git credentials](docs/private-git-credentials.md) and the [executor adapter](docs/executor-adapter.md) for backend options.
 
-For GitHub.com API access, provide a read-only `GITHUB_TOKEN` (or `GH_TOKEN`). For GitHub Enterprise Server, set `DETECTOR_GITHUB_HOST` and provide `DETECTOR_GHES_TOKEN`; tokens are selected by API host. Authenticated Git access inside Substrate also requires a configured credential provider and explicit `DETECTOR_EGRESS_POLICY`. The provider's token must be read-only and scoped to the repositories needed for the run. See [private Git setup](docs/private-git-credentials.md) for the cluster and CLI steps. Checks fail with a nonzero exit code for regressions, inconclusive results, or incomplete public discovery; `DETECTOR_DRY_RUN=true` is planning only and exits nonzero.
+## See it catch a break
 
-Execution is swappable. `DETECTOR_EXECUTOR=substrate` uses the built-in Google Agent Substrate adapter. To use another environment, set `DETECTOR_EXECUTOR=command` and point `DETECTOR_EXECUTOR_COMMAND` at a trusted adapter executable. The CLI, discovery, ranking, budgets, and reports stay the same; the adapter provisions the job in your chosen runner. See the [executor adapter protocol](docs/executor-adapter.md).
-
-### Run the local demo
-
-With Docker running, run:
+Run the self-contained demo with Docker:
 
 ```sh
 bash demo/itoa-serde/run.sh
 ```
 
-This builds the detector and a self-contained demo image, then checks an intentionally behavior-breaking change to `itoa` against `serde_json`. The public API is unchanged, but downstream tests catch the changed output. The actor runs with network disabled. See the [captured output and backtraces](demo/itoa-serde/report.txt), the [demo change](demo/itoa-serde/change.patch), or watch the walkthrough below.
+The demo changes `itoa` behavior without changing its API. `serde_json` still compiles, but its tests catch the break.
 
-### When there are thousands of consumers
+[![Watch the 36-second demo](demo/itoa-serde/walkthrough.gif)](demo/itoa-serde/walkthrough.mp4)
 
-The checker does not start a sandbox for every discovered repository. It first deduplicates consumers by repository, ranks them, and applies a job budget. Public crates are ranked by crates.io download counts; company repositories can be ranked with `DETECTOR_PRIORITY_FILE`, a JSON map from repository name to an integer priority. Company repositories are considered before public ones when both sources are enabled. These are useful starting signals, not a guarantee that the selected repositories are the most business-critical.
+## Built for many consumers
 
-By default it selects at most **5 repositories** (`DETECTOR_MAX_JOBS`, configurable up to 32) and runs at most **2 checks at once** (`DETECTOR_MAX_PARALLEL`, configurable up to 32). Each selected repository gets its own temporary actor, so the number of sandboxes is bounded by the job budget, while parallelism bounds active resource use and cost. The remaining consumers are omitted from that run; reports include the selected count and any repositories that could not be prepared. The current prototype samples by ranking rather than scheduling every consumer in batches. Company code search is paginated up to 1,000 results, so larger organizations need a broader inventory source for complete discovery.
+It doesn't start a sandbox for every repository. Consumers are deduplicated and ranked, then checked within a budget: **5 jobs by default, 2 at a time** (up to 32 each). Public crates use download counts; company repos can use your priority list. This is a ranked sample, not complete coverage of every consumer.
 
-## How Agent Substrate fits
+## Why Agent Substrate
 
-The built-in backend runs each downstream test in an isolated actor scheduled on a worker pool, with CPU and memory limits, network policy, and retained logs. The same compatibility-check request can be sent through the adapter protocol to a different job system. Agent Substrate documents warm actor resume under 500 ms and over 500 activations per second; those are platform figures, not this demo's benchmark ([architecture](https://ate.dev/docs/concepts/architecture/)).
-
-In the recorded local Kind/gVisor run, an actor had **1 vCPU and 1 GiB RAM**. Cargo reported **49.18 s** to build the baseline, **48.78 s** for its doc tests, and **42.64 s** to build the candidate; the failing candidate test target finished in **0.12 s**. These are individual phases, not end-to-end latency, and vary with hardware and cache state. See the [full run report](demo/itoa-serde/report.txt).
-
-## Video demo
-
-[![Watch the narrated walkthrough](demo/itoa-serde/walkthrough.gif)](demo/itoa-serde/walkthrough.mp4)
-
-[Play or download the 36-second video](demo/itoa-serde/walkthrough.mp4).
+Substrate gives each check an isolated actor with resource limits, egress controls, and retained logs. Its warm actor resume is documented at under 500 ms; that is a platform figure, not this demo's benchmark ([architecture](https://ate.dev/docs/concepts/architecture/)). In the recorded local run, baseline and candidate builds each took about 49 and 43 seconds respectively; see the [full logs](demo/itoa-serde/report.txt). The execution backend is swappable.
