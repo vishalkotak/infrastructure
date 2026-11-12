@@ -251,6 +251,15 @@ if node -e 'process.exit(require("./package.json").scripts?.test ? 0 : 1)'; then
 ''',
         "python": r'''set -eu
 verify_python() {
+  if torch_version=$("$@" -c 'from importlib.metadata import version; print(version("torch").split("+")[0])' 2>/dev/null); then
+    if [ -n "$torch_version" ]; then
+      echo "CPU validation uses the official CPU wheel of locked torch release $torch_version; GPU execution is not validated."
+      "$@" -m pip install --force-reinstall --no-deps "torch==$torch_version" --index-url https://download.pytorch.org/whl/cpu
+      checked_version=$("$@" -c 'from importlib.metadata import version; print(version("torch").split("+")[0])')
+      test "$checked_version" = "$torch_version"
+      "$@" -c 'import torch; assert torch.version.cuda is None'
+    fi
+  fi
   "$@" -m pip check
   if [ -n "${SECURITY_LOCK_REQUIREMENTS:-}" ]; then
     for requirement in "$SECURITY_LOCK_REQUIREMENTS".*.txt; do
@@ -519,6 +528,7 @@ def main():
     repos = [r for r in api.pages("/user/repos?affiliation=owner&sort=full_name")
              if r["owner"]["login"].lower() == OWNER.lower()]
     report = {"owner": OWNER, "apply": args.apply, "repositories": [], "errors": [],
+              "torch_validation": "Official CPU wheel of locked release; GPU execution is not validated",
               "python_no_test_policy": "Audit, pip check, and tracked-source compilation; no unit tests claimed"}
     failed = False
     started = time.monotonic()

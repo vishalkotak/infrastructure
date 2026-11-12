@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tomllib
 
 def canonical(name):
@@ -132,9 +133,37 @@ def allowed_manifest_change(before, after):
     return all(name in new and new[name] == group for name, group in old.items())
 
 
-def command(args):
-    result = subprocess.run(args, check=False)
+def runtime_floor_for_error(current, output, runtime_minor):
+    match = re.fullmatch(r"\^3\.(\d+)(?:\.\d+)?", str(current))
+    if not match:
+        match = re.fullmatch(r">=3\.(\d+)(?:\.\d+)?,\s*<4(?:\.0)?", str(current))
+    required = [int(value) for value in re.findall(r"requires Python\s+>=\s*3\.(\d+)", output)]
+    if not match or not required:
+        return None
+    floor = max(required)
+    if floor <= int(match.group(1)) or floor > runtime_minor:
+        return None
+    return f">=3.{floor},<4.0"
+
+
+def command(args, allow_runtime_update=True):
+    result = subprocess.run(args, check=False, text=True, capture_output=True)
+    print(result.stdout, end="", flush=True)
+    print(result.stderr, end="", file=sys.stderr, flush=True)
     if result.returncode:
+        if allow_runtime_update:
+            path = Path("pyproject.toml")
+            metadata = tomllib.loads(path.read_text())
+            current = metadata.get("tool", {}).get("poetry", {}).get("dependencies", {}).get("python")
+            replacement = runtime_floor_for_error(current, result.stdout + result.stderr, sys.version_info.minor)
+            if replacement:
+                # Poetry supplies tomlkit in this isolated preparation container.
+                import tomlkit
+                document = tomlkit.parse(path.read_text())
+                document["tool"]["poetry"]["dependencies"]["python"] = replacement
+                path.write_text(tomlkit.dumps(document))
+                print(f"Security fixes require a newer Python minimum: {current} -> {replacement}", flush=True)
+                return command(args, allow_runtime_update=False)
         raise RuntimeError("Dependency solver could not produce a compatible secure lockfile")
 
 

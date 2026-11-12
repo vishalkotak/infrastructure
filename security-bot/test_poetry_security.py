@@ -9,6 +9,16 @@ import poetry_security as security
 
 
 class PoetryRemediation(unittest.TestCase):
+    def test_python_floor_can_increase_only_for_explicit_solver_requirement(self):
+        output = "filelock requires Python >=3.11"
+        self.assertEqual(security.runtime_floor_for_error("^3.10", output, 12), ">=3.11,<4.0")
+        self.assertIsNone(security.runtime_floor_for_error("^3.12", output, 12))
+        self.assertIsNone(security.runtime_floor_for_error("^3.10", "Unrelated solver error", 12))
+
+    def test_runtime_floor_never_exceeds_test_interpreter_or_relaxes_upper_bound(self):
+        self.assertIsNone(security.runtime_floor_for_error("^3.10", "pkg requires Python >=3.13", 12))
+        self.assertIsNone(security.runtime_floor_for_error("~3.10", "pkg requires Python >=3.11", 12))
+        self.assertIsNone(security.runtime_floor_for_error(">=3.10,<3.11", "pkg requires Python >=3.11", 12))
     def test_platform_variants_are_all_audited_without_duplicate_names(self):
         lock = {"package": [{"name": "nvidia-cublas", "version": "13.6.1.10"},
                             {"name": "nvidia-cublas", "version": "13.10.0.20"},

@@ -146,6 +146,16 @@ resulting commit is saved outside the test container before testing:
   Multiple platform-specific versions of a package are audited in separate
   batches. Every version is retained; no batch contains conflicting duplicate
   package names, and fixes must satisfy findings from all variants.
+  If the solver explicitly reports that a patched package needs a newer Python
+  minimum, a simple Python 3 caret range may be narrowed accordingly while
+  preserving its `<4` upper bound. The new minimum cannot exceed the preparation
+  interpreter. This can drop support for an older interpreter such as Python
+  3.10; the changed requirement is committed with the fix and validated.
+
+  For PyTorch projects on the CPU-only GitHub runner, tests use the same locked
+  release's official CPU wheel from `download.pytorch.org`. Only the validation
+  environment's wheel changes; version declarations and release numbers remain
+  pinned. Reports explicitly state that GPU execution is not validated.
   Actual test failures block publication. When pytest collects no tests, validate
   dependency consistency with `pip check` and compile tracked Python sources,
   explicitly logging that no unit tests exist. Unsupported project setup or
