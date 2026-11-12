@@ -110,12 +110,7 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
         }))?);
     }
 
-    let image = env::var("DETECTOR_IMAGE")
-        .map_err(|_| "set DETECTOR_IMAGE to a digest-pinned detector image once during setup")?;
-    if !image.contains("@sha256:") {
-        return Err("DETECTOR_IMAGE must use an immutable @sha256: digest".into());
-    }
-    let atespace = env::var("DETECTOR_ATESPACE").unwrap_or_else(|_| "compatibility".into());
+    let executor = env::var("DETECTOR_EXECUTOR").unwrap_or_else(|_| "substrate".into());
     let parallel = env::var("DETECTOR_MAX_PARALLEL")
         .unwrap_or_else(|_| "2".into())
         .parse::<usize>()?;
@@ -123,8 +118,6 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
         return Err("DETECTOR_MAX_PARALLEL must be between 1 and 32".into());
     }
     let mut config = json!({
-        "atespace":atespace,
-        "image":image,
         "upstream":format!("https://{}/{}/{}/.git",pr.host,pr.owner,pr.repo),
         "baseline":pr.base_sha,
         "candidate":format!("refs/pull/{}/head",pr.number),
@@ -134,15 +127,34 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
         "cargo_offline":false,
         "jobs":dependents.iter().map(|d|json!({"repository":d.clone_url,"revision":d.revision,"priority":d.downloads})).collect::<Vec<_>>(),
     });
-    let egress_policy = env::var("DETECTOR_EGRESS_POLICY")
-        .unwrap_or_else(|_| "substrate/egress-policy.yaml".into());
-    config["egress_policy"] = json!(egress_policy);
-    if let Ok(auth_host) = env::var("DETECTOR_GIT_AUTH_HOST") {
-        config["git_auth_host"] = json!(auth_host);
-    } else if let Ok(company_host) = env::var("DETECTOR_GITHUB_HOST") {
-        config["git_auth_host"] = json!(company_host);
-    } else if pr.host != "github.com" {
-        config["git_auth_host"] = json!(pr.host);
+    match executor.as_str() {
+        "substrate" => {
+            let image = env::var("DETECTOR_IMAGE").map_err(|_| {
+                "set DETECTOR_IMAGE to a digest-pinned detector image once during setup"
+            })?;
+            if !image.contains("@sha256:") {
+                return Err("DETECTOR_IMAGE must use an immutable @sha256: digest".into());
+            }
+            config["executor"] = json!({"type":"substrate"});
+            config["image"] = json!(image);
+            config["atespace"] =
+                json!(env::var("DETECTOR_ATESPACE").unwrap_or_else(|_| "compatibility".into()));
+            config["egress_policy"] = json!(env::var("DETECTOR_EGRESS_POLICY")
+                .unwrap_or_else(|_| "substrate/egress-policy.yaml".into()));
+            if let Ok(auth_host) = env::var("DETECTOR_GIT_AUTH_HOST") {
+                config["git_auth_host"] = json!(auth_host);
+            } else if let Ok(company_host) = env::var("DETECTOR_GITHUB_HOST") {
+                config["git_auth_host"] = json!(company_host);
+            } else if pr.host != "github.com" {
+                config["git_auth_host"] = json!(pr.host);
+            }
+        }
+        "command" => {
+            let command = env::var("DETECTOR_EXECUTOR_COMMAND")
+                .map_err(|_| "set DETECTOR_EXECUTOR_COMMAND to your trusted executor adapter")?;
+            config["executor"] = json!({"type":"command","command":command});
+        }
+        _ => return Err("DETECTOR_EXECUTOR must be 'substrate' or 'command'".into()),
     }
     let results: Value = serde_json::from_str(&crate::batch::run(&config.to_string())?)?;
     let full_report = json!({

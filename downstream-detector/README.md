@@ -8,13 +8,15 @@ I work on platform problems where one shared library serves many product teams. 
 
 ## How to use it
 
-The PR checker needs a one-time setup of the Agent Substrate worker image, credentials, and (for a private company) organization settings. After that, pass it the pull request URL:
+The PR checker needs a one-time setup of the execution backend, credentials, and (for a private company) organization settings. After that, pass it the pull request URL:
 
 ```sh
 downstream-detector check https://github.com/OWNER/REPO/pull/123
 ```
 
-It identifies the changed Rust crate, discovers and ranks consumers, runs their tests in isolated actors, and prints a short result summary. Full test output and backtraces are saved under `.downstream-detector/reports/`. Public consumer discovery uses crates.io; set `DETECTOR_GITHUB_ORG` and a GitHub token to include company repositories found through code search. For GitHub Enterprise Server, also set `DETECTOR_GITHUB_HOST`. The tool does not automatically configure company credentials or an internal Cargo registry.
+It identifies the changed Rust crate, discovers and ranks consumers, runs their tests in isolated jobs, and prints a short result summary. Full test output and backtraces are saved under `.downstream-detector/reports/`. Public consumer discovery uses crates.io; set `DETECTOR_GITHUB_ORG` and a GitHub token to include company repositories found through code search. For GitHub Enterprise Server, also set `DETECTOR_GITHUB_HOST`. The tool does not automatically configure company credentials or an internal Cargo registry.
+
+Execution is swappable. `DETECTOR_EXECUTOR=substrate` uses the built-in Google Agent Substrate adapter. To use another environment, set `DETECTOR_EXECUTOR=command` and point `DETECTOR_EXECUTOR_COMMAND` at a trusted adapter executable. The CLI, discovery, ranking, budgets, and reports stay the same; the adapter provisions the job in your chosen runner. See the [executor adapter protocol](docs/executor-adapter.md).
 
 ### Run the local demo
 
@@ -34,7 +36,7 @@ By default it selects at most **5 repositories** (`DETECTOR_MAX_JOBS`, configura
 
 ## How Agent Substrate fits
 
-Each downstream test is an isolated actor scheduled on a worker pool, with CPU and memory limits, network policy, and retained logs. That lets the tool fan out to consumers without maintaining a worker per repository. Agent Substrate documents warm actor resume under 500 ms and over 500 activations per second; those are platform figures, not this demo's benchmark ([architecture](https://ate.dev/docs/concepts/architecture/)).
+The built-in backend runs each downstream test in an isolated actor scheduled on a worker pool, with CPU and memory limits, network policy, and retained logs. The same compatibility-check request can be sent through the adapter protocol to a different job system. Agent Substrate documents warm actor resume under 500 ms and over 500 activations per second; those are platform figures, not this demo's benchmark ([architecture](https://ate.dev/docs/concepts/architecture/)).
 
 In the recorded local Kind/gVisor run, an actor had **1 vCPU and 1 GiB RAM**. Cargo reported **49.18 s** to build the baseline, **48.78 s** for its doc tests, and **42.64 s** to build the candidate; the failing candidate test target finished in **0.12 s**. These are individual phases, not end-to-end latency, and vary with hardware and cache state. See the [full run report](demo/itoa-serde/report.txt).
 
