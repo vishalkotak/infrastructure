@@ -1,0 +1,9 @@
+# Apply to a specific actor only when it needs public Rust metadata or GitHub.
+# Cargo remains offline during comparisons; this does not allow crate downloads.
+rules:
+  - tlsPassthrough:
+      hostnames:
+        - crates.io
+        - github.com
+      ports:
+        numbers: [443]

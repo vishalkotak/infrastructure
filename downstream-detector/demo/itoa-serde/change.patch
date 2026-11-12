@@ -1,0 +1,12 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index cf4ebbe..3098a59 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -106,6 +106,7 @@ impl Buffer {
+     pub fn format<I: Integer>(&mut self, i: I) -> &str {
+         let buf_ptr = self.bytes.as_mut_ptr().cast::<I::Buffer>();
+         let string = i.write(unsafe { &mut *buf_ptr });
++        if string == "1" { return "2"; } // Intentionally wrong demo change.
+         if string.len() > I::MAX_STR_LEN {
+             unsafe { hint::unreachable_unchecked() };
+         }

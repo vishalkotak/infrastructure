@@ -1,0 +1,26 @@
+# Local example: replace the worker image with your installation's gVisor worker.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: compatibility-workers
+---
+apiVersion: ate.dev/v1
+kind: WorkerPool
+metadata:
+  name: rust-detector
+  namespace: compatibility-workers
+  labels:
+    workload: rust-detector
+spec:
+  replicas: 1
+  workerImage: localhost:5001/ateworker-gvisor@sha256:6baa0a6cc3f8fa402d3e06b19d63fc4c70513ecec23957f7de579f73a1a02a2b
+  sandboxClasses:
+    - name: gvisor
+  template:
+    resources:
+      requests:
+        cpu: 250m
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi

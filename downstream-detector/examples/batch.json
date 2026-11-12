@@ -1,0 +1,16 @@
+{
+  "atespace": "compatibility",
+  "image": "localhost:5001/downstream-detector@sha256:REPLACE_WITH_IMAGE_DIGEST",
+  "upstream": "https://github.example.com/team/library.git",
+  "baseline": "REPLACE_WITH_BASELINE_COMMIT",
+  "candidate": "REPLACE_WITH_CANDIDATE_COMMIT",
+  "crate_name": "example-library",
+  "max_jobs": 2,
+  "max_parallel": 2,
+  "egress_policy": "substrate/enterprise-egress.example.yaml",
+  "git_auth_host": "github.example.com",
+  "jobs": [
+    {"repository": "https://github.example.com/team/critical-service.git", "revision": "REPLACE_WITH_COMMIT", "priority": 100},
+    {"repository": "https://github.example.com/team/other-service.git", "revision": "REPLACE_WITH_COMMIT", "priority": 50}
+  ]
+}

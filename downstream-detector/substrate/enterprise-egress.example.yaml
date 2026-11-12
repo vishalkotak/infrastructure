@@ -1,0 +1,11 @@
+# Replace the hostname and credential URI after configuring the credential provider.
+# The secret must be a short-lived token scoped to the repositories for this job.
+# HTTPS interception requires the actor's Substrate trust-bundle mount.
+rules:
+  - https:
+      hostnames: [github.example.com]
+      effects:
+        replaceHeaders:
+          - header: Authorization
+            prefix: "Bearer "
+            credentialUri: ate-secret://k8s.io/default/REPLACE_NAMESPACE/REPLACE_SECRET/token

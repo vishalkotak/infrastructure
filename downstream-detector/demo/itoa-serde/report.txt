@@ -1,0 +1,718 @@
+Verdict: POTENTIAL_REGRESSION
+
+Baseline: demo-baseline (exit 0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test ui ... ignored, requires nightly
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 9 tests
+test error ... ok
+test indented ... ok
+test value_array ... ok
+test number ... ok
+test value_bool ... ok
+test value_null ... ok
+test value_number ... ok
+test value_object ... ok
+test value_string ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+
+running 35 tests
+test algorithm::float_fast_path_test ... ok
+test algorithm::double_fast_path_test ... ok
+test exponent::mantissa_exponent_test ... ok
+test algorithm::moderate_path_test ... ok
+test exponent::scientific_exponent_test ... ok
+test float::from_float ... ok
+test float::imul_test ... ok
+test float::mul_test ... ok
+test float::normalize_test ... ok
+test float::round_to_f32_test ... ok
+test float::round_to_f64_test ... ok
+test float::to_f32_test ... ok
+test float::to_f64_test ... ok
+test math::bit_length_test ... ok
+test math::compare_test ... ok
+test math::hi64_test ... ok
+test math::iadd_small_test ... ok
+test math::imul_small_test ... ok
+test math::shl_test ... ok
+test num::as_primitive_test ... ok
+test num::float_test ... ok
+test num::integer_test ... ok
+test num::number_test ... ok
+test parse::parse_f32_test ... ok
+test parse::parse_f64_test ... ok
+test rounding::avoid_overflow_test ... ok
+test rounding::internal_n_mask_test ... ok
+test rounding::lower_n_halfway_test ... ok
+test rounding::lower_n_mask_test ... ok
+test rounding::nth_bit_test ... ok
+test rounding::round_downward_test ... ok
+test rounding::round_nearest_test ... ok
+test rounding::round_nearest_tie_even_test ... ok
+test rounding::round_to_float_test ... ok
+test rounding::round_to_native_test ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 3 tests
+test test_preserve_order ... ok
+test test_append ... ok
+test test_retain ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+test regression::issue1083::invalid_utf8_at_start_of_string ... ok
+test regression::issue1083::invalid_utf8_after_escape_reports_the_bad_byte ... ok
+test regression::issue1083::invalid_utf8_inside_string_reports_the_bad_byte ... ok
+test regression::issue520::test ... ok
+test regression::issue795::test ... ok
+test regression::issue845::test ... ok
+test regression::issue953::test ... ok
+test regression::issue979::test ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 11 tests
+test test_json_stream_empty ... ok
+test test_error ... ok
+test test_json_stream_invalid_literal ... ok
+test test_json_stream_invalid_number ... ok
+test test_json_stream_newlines ... ok
+test test_json_stream_primitive ... ok
+test test_json_stream_trailing_whitespaces ... ok
+test test_json_stream_truncated ... ok
+test test_json_stream_truncated_decimal ... ok
+test test_json_stream_truncated_exponent ... ok
+test test_json_stream_truncated_negative ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 77 tests
+test hash_positive_and_negative_zero ... ok
+test issue_220 ... ok
+test null_invalid_type ... ok
+test test_borrow ... ok
+test test_borrow_in_map_key ... ok
+test test_borrowed_key ... ok
+test test_boolean_key ... ok
+test test_byte_buf_de ... ok
+test test_byte_buf_de_invalid_surrogates ... ok
+test test_byte_buf_de_multiple ... ok
+test test_byte_buf_de_surrogate_pair ... ok
+test test_byte_buf_ser ... ok
+test test_bytes_ser ... ok
+test test_category ... ok
+test test_deny_non_finite_f32_key ... ok
+test test_deny_non_finite_f64_key ... ok
+test test_control_character_search ... ok
+test test_deserialize_number_to_untagged_enum ... ok
+test test_effectively_string_keys ... ok
+test test_encode_nonfinite_float_yields_null ... ok
+test test_float_key ... ok
+test test_integer128 ... ok
+test test_integer128_key ... ok
+test test_integer128_to_value ... ok
+test test_integer_key ... ok
+test test_into_io_error ... ok
+test test_json_macro ... ok
+test test_deserialize_from_stream ... ok
+test test_json_pointer ... ok
+test test_json_pointer_mut ... ok
+test test_missing_nonoption_field ... ok
+test test_missing_option_field ... ok
+test test_missing_renamed_field ... ok
+test test_multiline_errors ... ok
+test test_negative_zero_value ... ok
+test test_parse_bool ... ok
+test test_parse_char ... ok
+test test_parse_enum_errors ... ok
+test test_parse_enum ... ok
+test test_parse_i64 ... ok
+test test_parse_f64 ... ok
+test test_parse_negative_zero ... ok
+test test_parse_list ... ok
+test test_parse_null ... ok
+test test_parse_number ... ok
+test test_parse_number_errors ... ok
+test test_parse_object ... ok
+test test_parse_option ... ok
+test test_parse_string ... ok
+test test_parse_struct ... ok
+test test_parse_trailing_whitespace ... ok
+test test_parse_u64 ... ok
+test test_partialeq_bool ... ok
+test test_partialeq_f32_out_of_range ... ok
+test test_partialeq_number ... ok
+test test_partialeq_string ... ok
+test test_roundtrip_f32 ... ok
+test test_serialize_char ... ok
+test test_serialize_map_with_no_len ... ok
+test test_serialize_rejects_adt_keys ... ok
+test test_serialize_seq_with_no_len ... ok
+test test_value_as_f64 ... ok
+test test_value_into_deserializer ... ok
+test test_stack_overflow ... ok
+test test_write_bool ... ok
+test test_write_char ... ok
+test test_write_enum ... ok
+test test_write_f64 ... ok
+test test_write_i64 ... ok
+test test_write_list ... ok
+test test_write_newtype_struct ... ok
+test test_write_null ... ok
+test test_write_object ... ok
+test test_write_option ... ok
+test test_write_str ... ok
+test test_write_tuple ... ok
+test test_write_u64 ... ok
+
+test result: ok. 77 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+
+running 97 tests
+test src/de.rs - de::&'_mutDeserializer<R>::deserialize_bytes (line 1599) ... ok
+test src/de.rs - de::&'_mutDeserializer<R>::deserialize_bytes (line 1620) ... ok
+test src/de.rs - de::StreamDeserializer (line 2348) ... ok
+test src/de.rs - de::StreamDeserializer<'de,R,T>::byte_offset (line 2398) ... ok
+test src/de.rs - de::from_reader (line 2545) ... ok
+test src/de.rs - de::from_reader (line 2581) ... ok
+test src/de.rs - de::from_slice (line 2636) ... ok
+test src/de.rs - de::from_str (line 2678) ... ok
+test src/error.rs - error::io::Error::from (line 195) ... ok
+test src/error.rs - error::Error::io_error_kind (line 119) ... ok
+test src/lib.rs - (line 120) ... ok
+test src/lib.rs - (line 182) ... ok
+test src/lib.rs - (line 211) ... ok
+test src/lib.rs - (line 242) ... ok
+test src/lib.rs - (line 43) ... ok
+test src/lib.rs - (line 62) ... ok
+test src/macros.rs - macros::json (line 26) ... ok
+test src/macros.rs - macros::json (line 3) ... ok
+test src/macros.rs - macros::json (line 43) ... ok
+test src/map.rs - map::Entry<'a>::and_modify (line 723) ... ok
+test src/map.rs - map::Entry<'a>::key (line 663) ... ok
+test src/map.rs - map::Entry<'a>::or_insert (line 679) ... ok
+test src/map.rs - map::Entry<'a>::or_insert_with (line 700) ... ok
+test src/map.rs - map::Map<String,Value> (line 445) ... ok
+test src/map.rs - map::Map<String,Value> (line 473) ... ok
+test src/map.rs - map::OccupiedEntry<'a>::get (line 830) ... ok
+test src/map.rs - map::OccupiedEntry<'a>::get_mut (line 854) ... ok
+test src/map.rs - map::OccupiedEntry<'a>::insert (line 907) ... ok
+test src/map.rs - map::OccupiedEntry<'a>::into_mut (line 880) ... ok
+test src/map.rs - map::OccupiedEntry<'a>::key (line 806) ... ok
+test src/map.rs - map::OccupiedEntry<'a>::remove (line 938) ... ok
+test src/map.rs - map::VacantEntry<'a>::insert (line 781) ... ok
+test src/map.rs - map::OccupiedEntry<'a>::remove_entry (line 999) ... ok
+test src/map.rs - map::VacantEntry<'a>::key (line 759) ... ok
+test src/number.rs - number::Number::from_f64 (line 176) ... ok
+test src/number.rs - number::Number::from_i128 (line 230) ... ok
+test src/number.rs - number::Number::from_u128 (line 259) ... ok
+test src/value/from.rs - value::from::Value::from (line 101) ... ok
+test src/value/from.rs - value::from::Value::from (line 117) ... ok
+test src/value/from.rs - value::from::Value::from (line 125) ... ok
+test src/value/from.rs - value::from::Value::from (line 142) ... ok
+test src/value/from.rs - value::from::Value::from (line 158) ... ok
+test src/value/from.rs - value::from::Value::from (line 175) ... ok
+test src/value/from.rs - value::from::Value::from (line 197) ... ok
+test src/value/from.rs - value::from::Value::from (line 263) ... ok
+test src/value/from.rs - value::from::Value::from (line 53) ... ok
+test src/value/from.rs - value::from::Value::from (line 36) ... ok
+test src/value/from.rs - value::from::Value::from (line 69) ... ok
+test src/value/from.rs - value::from::Value::from (line 85) ... ok
+test src/value/from.rs - value::from::Value::from_iter (line 213) ... ok
+test src/value/from.rs - value::from::Value::from_iter (line 220) ... ok
+test src/value/from.rs - value::from::Value::from_iter (line 227) ... ok
+test src/value/from.rs - value::from::Value::from_iter (line 243) ... ok
+test src/value/index.rs - value::index::Index (line 24) ... ok
+test src/value/index.rs - value::index::Value::index (line 197) ... ok
+test src/value/index.rs - value::index::Value::index_mut (line 236) ... ok
+test src/value/mod.rs - value (line 37) ... ok
+test src/value/mod.rs - value (line 61) ... ok
+test src/value/mod.rs - value (line 8) ... ok
+test src/value/mod.rs - value::Value (line 898) ... ok
+test src/value/mod.rs - value::Value::Array (line 155) ... ok
+test src/value/mod.rs - value::Value::Bool (line 128) ... ok
+test src/value/mod.rs - value::Value::Null (line 119) ... ok
+test src/value/mod.rs - value::Value::Number (line 137) ... ok
+test src/value/mod.rs - value::Value::Object (line 170) ... ok
+test src/value/mod.rs - value::Value::String (line 146) ... ok
+test src/value/mod.rs - value::Value::as_array (line 414) ... ok
+test src/value/mod.rs - value::Value::as_array_mut (line 435) ... ok
+test src/value/mod.rs - value::Value::as_bool (line 698) ... ok
+test src/value/mod.rs - value::Value::as_i64 (line 621) ... ok
+test src/value/mod.rs - value::Value::as_f64 (line 660) ... ok
+test src/value/mod.rs - value::Value::as_null (line 736) ... ok
+test src/value/mod.rs - value::Value::as_number (line 521) ... ok
+test src/value/mod.rs - value::Value::as_object (line 355) ... ok
+test src/value/mod.rs - value::Value::as_object_mut (line 376) ... ok
+test src/value/mod.rs - value::Value::as_str (line 472) ... ok
+test src/value/mod.rs - value::Value::as_u64 (line 641) ... ok
+test src/value/mod.rs - value::Value::fmt (line 200) ... ok
+test src/value/mod.rs - value::Value::get (line 276) ... ok
+test src/value/mod.rs - value::Value::get (line 292) ... ok
+test src/value/mod.rs - value::Value::get_mut (line 318) ... ok
+test src/value/mod.rs - value::Value::is_boolean (line 681) ... ok
+test src/value/mod.rs - value::Value::is_array (line 397) ... ok
+test src/value/mod.rs - value::Value::is_f64 (line 600) ... ok
+test src/value/mod.rs - value::Value::is_i64 (line 546) ... ok
+test src/value/mod.rs - value::Value::is_null (line 720) ... ok
+test src/value/mod.rs - value::Value::is_number (line 501) ... ok
+test src/value/mod.rs - value::Value::is_string (line 455) ... ok
+test src/value/mod.rs - value::Value::is_object (line 337) ... ok
+test src/value/mod.rs - value::Value::is_u64 (line 572) ... ok
+test src/value/mod.rs - value::Value::pointer (line 767) ... ok
+test src/value/mod.rs - value::Value::take (line 854) ... ok
+test src/value/mod.rs - value::Value::pointer_mut (line 812) ... ok
+test src/value/mod.rs - value::to_value (line 945) ... ok
+test src/value/mod.rs - value::from_value (line 1006) ... ok
+test src/value/ser.rs - value::ser::Serializer (line 47) ... ok
+test src/value/mod.rs - value::to_value (line 982) ... ok
+
+test result: ok. 97 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 48.78s
+
+     Locking 1 package to latest compatible version
+      Adding itoa v1.0.19 (/tmp/downstream-detector-1-1794467767946252756/baseline/upstream)
+   Compiling proc-macro2 v1.0.107
+   Compiling serde_core v1.0.229
+   Compiling quote v1.0.47
+   Compiling memchr v2.8.3
+   Compiling unicode-ident v1.0.27
+   Compiling object v0.39.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling cc v1.11.1
+   Compiling syn v3.0.10
+   Compiling ar_archive_writer v0.5.5
+   Compiling zmij v1.0.23
+   Compiling libc v0.2.191
+   Compiling psm v0.1.32
+   Compiling stacker v0.1.25
+   Compiling itoa v1.0.19 (/tmp/downstream-detector-1-1794467767946252756/baseline/upstream)
+   Compiling serde v1.0.229
+   Compiling winnow v1.0.5
+   Compiling serde_json v1.0.154
+   Compiling target-tuple v1.0.2
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling serde_derive v1.0.229
+   Compiling serde_spanned v1.1.3
+   Compiling toml_datetime v1.1.3+spec-1.1.0
+   Compiling cfg-if v1.0.5
+   Compiling ref-cast v1.0.27
+   Compiling serde_json v1.0.154 (/tmp/downstream-detector-1-1794467767946252756/baseline/downstream)
+   Compiling toml_writer v1.2.0+spec-1.1.0
+   Compiling rustversion v1.0.23
+   Compiling toml v1.2.1+spec-1.1.0
+   Compiling ref-cast-impl v1.0.27
+   Compiling syn v2.0.119
+   Compiling dissimilar v1.0.11
+   Compiling termcolor v1.4.1
+   Compiling glob v0.3.4
+   Compiling trybuild v1.0.122
+   Compiling automod v1.0.17
+   Compiling serde_stacker v0.1.14
+   Compiling serde_bytes v0.11.19
+   Compiling indoc v2.0.8
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.18s
+     Running unittests src/lib.rs (/tmp/downstream-detector-1-1794467767946252756/baseline/target/debug/deps/serde_json-f8c707b195cfe35e)
+     Running tests/compiletest.rs (/tmp/downstream-detector-1-1794467767946252756/baseline/target/debug/deps/compiletest-18a16ad01a1d580a)
+     Running tests/debug.rs (/tmp/downstream-detector-1-1794467767946252756/baseline/target/debug/deps/debug-865bd88c8073a077)
+     Running tests/lexical.rs (/tmp/downstream-detector-1-1794467767946252756/baseline/target/debug/deps/lexical-7245aadd53b8d8e1)
+     Running tests/map.rs (/tmp/downstream-detector-1-1794467767946252756/baseline/target/debug/deps/map-d97eafe91732c95e)
+     Running tests/regression.rs (/tmp/downstream-detector-1-1794467767946252756/baseline/target/debug/deps/regression-09c8aded8bb22415)
+     Running tests/stream.rs (/tmp/downstream-detector-1-1794467767946252756/baseline/target/debug/deps/stream-6ea633e9bc5322ee)
+     Running tests/test.rs (/tmp/downstream-detector-1-1794467767946252756/baseline/target/debug/deps/test-3ace99d8b72395f0)
+   Doc-tests serde_json
+
+
+Candidate: HEAD (exit 101)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test ui ... ignored, requires nightly
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 9 tests
+test error ... ok
+test number ... FAILED
+test indented ... FAILED
+test value_array ... ok
+test value_bool ... ok
+test value_null ... ok
+test value_number ... FAILED
+test value_object ... ok
+test value_string ... ok
+
+failures:
+
+---- number stdout ----
+
+thread 'number' panicked at tests/debug.rs:8:5:
+assertion `left == right` failed
+  left: "Number(2)"
+ right: "Number(1)"
+stack backtrace:
+   0:     0xaad50afbba64 - std::backtrace_rs::backtrace::libunwind::trace::hd276b12e818ebb1b
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1:     0xaad50afbba64 - std::backtrace_rs::backtrace::trace_unsynchronized::haaac80839e3628e9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2:     0xaad50afbba64 - std::sys::backtrace::_print_fmt::h7e990a4dd702d79f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:66:9
+   3:     0xaad50afbba64 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::hc631692e4d6d1628
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:39:26
+   4:     0xaad50afdb728 - core::fmt::rt::Argument::fmt::h22d843ccec91f0f3
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/fmt/rt.rs:173:76
+   5:     0xaad50afdb728 - core::fmt::write::h7bf833af8f233fce
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/fmt/mod.rs:1468:25
+   6:     0xaad50afb91d0 - std::io::default_write_fmt::h19251de821527249
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/io/mod.rs:639:11
+   7:     0xaad50afb91d0 - std::io::Write::write_fmt::habed1dab77cd3d90
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/io/mod.rs:1954:13
+   8:     0xaad50afbb918 - std::sys::backtrace::BacktraceLock::print::h2501550d0c1c6b4b
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:42:9
+   9:     0xaad50afbcf70 - std::panicking::default_hook::{{closure}}::hf7dbf92de055b5c9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:300:27
+  10:     0xaad50afbcd7c - std::panicking::default_hook::hf2a38bcea5183167
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:324:9
+  11:     0xaad50af74614 - <alloc::boxed::Box<F,A> as core::ops::function::Fn<Args>>::call::ha326c315e7294b25
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/alloc/src/boxed.rs:1985:9
+  12:     0xaad50af74614 - test::test_main_with_exit_callback::{{closure}}::h9407df14135d4adc
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:145:21
+  13:     0xaad50afbd8ac - <alloc::boxed::Box<F,A> as core::ops::function::Fn<Args>>::call::h87ce39970b09a3b4
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/alloc/src/boxed.rs:1985:9
+  14:     0xaad50afbd8ac - std::panicking::rust_panic_with_hook::h6d5d1ccb6c488eac
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:841:13
+  15:     0xaad50afbd648 - std::panicking::begin_panic_handler::{{closure}}::ha8795fbe1bce1203
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:706:13
+  16:     0xaad50afbbf58 - std::sys::backtrace::__rust_end_short_backtrace::hdbad3a22e9550fec
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:174:18
+  17:     0xaad50afbd32c - __rustc[de2ca18b4c54d5b8]::rust_begin_unwind
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:697:5
+  18:     0xaad50af425f4 - core::panicking::panic_fmt::h77393a3a8fcaf093
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panicking.rs:75:14
+  19:     0xaad50af4290c - core::panicking::assert_failed_inner::ha7e616c7dbd65900
+  20:     0xaad50af44d38 - core::panicking::assert_failed::hab76c86ca1eaab6a
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panicking.rs:403:5
+  21:     0xaad50af43384 - debug::number::h48ea3d50ffb392c5
+                               at /tmp/downstream-detector-1-1794467767946252756/candidate/downstream/tests/debug.rs:8:5
+  22:     0xaad50af45c38 - debug::number::{{closure}}::h7e41039107725aa3
+                               at /tmp/downstream-detector-1-1794467767946252756/candidate/downstream/tests/debug.rs:7:12
+  23:     0xaad50af431ec - core::ops::function::FnOnce::call_once::he6d355ceb402b0c6
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/ops/function.rs:253:5
+  24:     0xaad50af78c7c - core::ops::function::FnOnce::call_once::h1c6eadf59cb1a497
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/ops/function.rs:253:5
+  25:     0xaad50af78c7c - test::__rust_begin_short_backtrace::hab1532bd8947f827
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:648:18
+  26:     0xaad50af77f60 - test::run_test_in_process::{{closure}}::h856c5b3d4ced2e96
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:671:74
+  27:     0xaad50af77f60 - <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once::he7cebe3c5d34a72e
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panic/unwind_safe.rs:272:9
+  28:     0xaad50af77f60 - std::panicking::catch_unwind::do_call::hd2ff859e732669ad
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:589:40
+  29:     0xaad50af77f60 - std::panicking::catch_unwind::h1236fb107f3723d8
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:552:19
+  30:     0xaad50af77f60 - std::panic::catch_unwind::hbda086126731879f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panic.rs:359:14
+  31:     0xaad50af77f60 - test::run_test_in_process::h1cb23ae95df4e39d
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:671:27
+  32:     0xaad50af77f60 - test::run_test::{{closure}}::h1b82078b246605f9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:592:43
+  33:     0xaad50af47994 - test::run_test::{{closure}}::h3f0309dcb66f4484
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:622:41
+  34:     0xaad50af47994 - std::sys::backtrace::__rust_begin_short_backtrace::h003559075decd9e1
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:158:18
+  35:     0xaad50af4ad14 - std::thread::Builder::spawn_unchecked_::{{closure}}::{{closure}}::hbabc4ab31be0ec8f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/thread/mod.rs:559:17
+  36:     0xaad50af4ad14 - <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once::hc47f8088e55349df
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panic/unwind_safe.rs:272:9
+  37:     0xaad50af4ad14 - std::panicking::catch_unwind::do_call::h860450983c3dc767
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:589:40
+  38:     0xaad50af4ad14 - std::panicking::catch_unwind::h9777d30b32dea686
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:552:19
+  39:     0xaad50af4ad14 - std::panic::catch_unwind::h4d89e711fbfc114f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panic.rs:359:14
+  40:     0xaad50af4ad14 - std::thread::Builder::spawn_unchecked_::{{closure}}::heedf949ce0b56980
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/thread/mod.rs:557:30
+  41:     0xaad50af4ad14 - core::ops::function::FnOnce::call_once{{vtable.shim}}::h386209b3bb37a615
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/ops/function.rs:253:5
+  42:     0xaad50afbff94 - <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once::h6a67626ac294dae1
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/alloc/src/boxed.rs:1971:9
+  43:     0xaad50afbff94 - std::sys::pal::unix::thread::Thread::new::thread_start::hc19e229732012ef9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/pal/unix/thread.rs:107:17
+  44:     0xfda74cad2030 - <unknown>
+  45:     0xfda74cb3bf1c - <unknown>
+  46:                0x0 - <unknown>
+
+---- indented stdout ----
+
+thread 'indented' panicked at tests/debug.rs:82:5:
+assertion `left == right` failed
+  left: "Object {\n    \"Array\": Array [\n        Bool(true),\n    ],\n    \"Bool\": Bool(true),\n    \"EmptyArray\": Array [],\n    \"EmptyObject\": Object {},\n    \"Null\": Null,\n    \"Number\": Number(2),\n    \"String\": String(\"...\"),\n}"
+ right: "Object {\n    \"Array\": Array [\n        Bool(true),\n    ],\n    \"Bool\": Bool(true),\n    \"EmptyArray\": Array [],\n    \"EmptyObject\": Object {},\n    \"Null\": Null,\n    \"Number\": Number(1),\n    \"String\": String(\"...\"),\n}"
+stack backtrace:
+   0:     0xaad50afbba64 - std::backtrace_rs::backtrace::libunwind::trace::hd276b12e818ebb1b
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1:     0xaad50afbba64 - std::backtrace_rs::backtrace::trace_unsynchronized::haaac80839e3628e9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2:     0xaad50afbba64 - std::sys::backtrace::_print_fmt::h7e990a4dd702d79f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:66:9
+   3:     0xaad50afbba64 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::hc631692e4d6d1628
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:39:26
+   4:     0xaad50afdb728 - core::fmt::rt::Argument::fmt::h22d843ccec91f0f3
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/fmt/rt.rs:173:76
+   5:     0xaad50afdb728 - core::fmt::write::h7bf833af8f233fce
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/fmt/mod.rs:1468:25
+   6:     0xaad50afb91d0 - std::io::default_write_fmt::h19251de821527249
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/io/mod.rs:639:11
+   7:     0xaad50afb91d0 - std::io::Write::write_fmt::habed1dab77cd3d90
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/io/mod.rs:1954:13
+   8:     0xaad50afbb918 - std::sys::backtrace::BacktraceLock::print::h2501550d0c1c6b4b
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:42:9
+   9:     0xaad50afbcf70 - std::panicking::default_hook::{{closure}}::hf7dbf92de055b5c9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:300:27
+  10:     0xaad50afbcd7c - std::panicking::default_hook::hf2a38bcea5183167
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:324:9
+  11:     0xaad50af74614 - <alloc::boxed::Box<F,A> as core::ops::function::Fn<Args>>::call::ha326c315e7294b25
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/alloc/src/boxed.rs:1985:9
+  12:     0xaad50af74614 - test::test_main_with_exit_callback::{{closure}}::h9407df14135d4adc
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:145:21
+  13:     0xaad50afbd8ac - <alloc::boxed::Box<F,A> as core::ops::function::Fn<Args>>::call::h87ce39970b09a3b4
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/alloc/src/boxed.rs:1985:9
+  14:     0xaad50afbd8ac - std::panicking::rust_panic_with_hook::h6d5d1ccb6c488eac
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:841:13
+  15:     0xaad50afbd648 - std::panicking::begin_panic_handler::{{closure}}::ha8795fbe1bce1203
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:706:13
+  16:     0xaad50afbbf58 - std::sys::backtrace::__rust_end_short_backtrace::hdbad3a22e9550fec
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:174:18
+  17:     0xaad50afbd32c - __rustc[de2ca18b4c54d5b8]::rust_begin_unwind
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:697:5
+  18:     0xaad50af425f4 - core::panicking::panic_fmt::h77393a3a8fcaf093
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panicking.rs:75:14
+  19:     0xaad50af4290c - core::panicking::assert_failed_inner::ha7e616c7dbd65900
+  20:     0xaad50af44d38 - core::panicking::assert_failed::hab76c86ca1eaab6a
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panicking.rs:403:5
+  21:     0xaad50af44bbc - debug::indented::heb908927857b9dcf
+                               at /tmp/downstream-detector-1-1794467767946252756/candidate/downstream/tests/debug.rs:82:5
+  22:     0xaad50af45d98 - debug::indented::{{closure}}::h5efe78d224eb6541
+                               at /tmp/downstream-detector-1-1794467767946252756/candidate/downstream/tests/debug.rs:59:14
+  23:     0xaad50af43154 - core::ops::function::FnOnce::call_once::h886c676088962749
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/ops/function.rs:253:5
+  24:     0xaad50af78c7c - core::ops::function::FnOnce::call_once::h1c6eadf59cb1a497
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/ops/function.rs:253:5
+  25:     0xaad50af78c7c - test::__rust_begin_short_backtrace::hab1532bd8947f827
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:648:18
+  26:     0xaad50af77f60 - test::run_test_in_process::{{closure}}::h856c5b3d4ced2e96
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:671:74
+  27:     0xaad50af77f60 - <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once::he7cebe3c5d34a72e
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panic/unwind_safe.rs:272:9
+  28:     0xaad50af77f60 - std::panicking::catch_unwind::do_call::hd2ff859e732669ad
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:589:40
+  29:     0xaad50af77f60 - std::panicking::catch_unwind::h1236fb107f3723d8
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:552:19
+  30:     0xaad50af77f60 - std::panic::catch_unwind::hbda086126731879f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panic.rs:359:14
+  31:     0xaad50af77f60 - test::run_test_in_process::h1cb23ae95df4e39d
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:671:27
+  32:     0xaad50af77f60 - test::run_test::{{closure}}::h1b82078b246605f9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:592:43
+  33:     0xaad50af47994 - test::run_test::{{closure}}::h3f0309dcb66f4484
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:622:41
+  34:     0xaad50af47994 - std::sys::backtrace::__rust_begin_short_backtrace::h003559075decd9e1
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:158:18
+  35:     0xaad50af4ad14 - std::thread::Builder::spawn_unchecked_::{{closure}}::{{closure}}::hbabc4ab31be0ec8f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/thread/mod.rs:559:17
+  36:     0xaad50af4ad14 - <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once::hc47f8088e55349df
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panic/unwind_safe.rs:272:9
+  37:     0xaad50af4ad14 - std::panicking::catch_unwind::do_call::h860450983c3dc767
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:589:40
+  38:     0xaad50af4ad14 - std::panicking::catch_unwind::h9777d30b32dea686
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:552:19
+  39:     0xaad50af4ad14 - std::panic::catch_unwind::h4d89e711fbfc114f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panic.rs:359:14
+  40:     0xaad50af4ad14 - std::thread::Builder::spawn_unchecked_::{{closure}}::heedf949ce0b56980
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/thread/mod.rs:557:30
+  41:     0xaad50af4ad14 - core::ops::function::FnOnce::call_once{{vtable.shim}}::h386209b3bb37a615
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/ops/function.rs:253:5
+  42:     0xaad50afbff94 - <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once::h6a67626ac294dae1
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/alloc/src/boxed.rs:1971:9
+  43:     0xaad50afbff94 - std::sys::pal::unix::thread::Thread::new::thread_start::hc19e229732012ef9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/pal/unix/thread.rs:107:17
+  44:     0xfda74cad2030 - <unknown>
+  45:     0xfda74cb3bf1c - <unknown>
+  46:                0x0 - <unknown>
+
+---- value_number stdout ----
+
+thread 'value_number' panicked at tests/debug.rs:29:5:
+assertion `left == right` failed
+  left: "Number(2)"
+ right: "Number(1)"
+stack backtrace:
+   0:     0xaad50afbba64 - std::backtrace_rs::backtrace::libunwind::trace::hd276b12e818ebb1b
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1:     0xaad50afbba64 - std::backtrace_rs::backtrace::trace_unsynchronized::haaac80839e3628e9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2:     0xaad50afbba64 - std::sys::backtrace::_print_fmt::h7e990a4dd702d79f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:66:9
+   3:     0xaad50afbba64 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::hc631692e4d6d1628
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:39:26
+   4:     0xaad50afdb728 - core::fmt::rt::Argument::fmt::h22d843ccec91f0f3
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/fmt/rt.rs:173:76
+   5:     0xaad50afdb728 - core::fmt::write::h7bf833af8f233fce
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/fmt/mod.rs:1468:25
+   6:     0xaad50afb91d0 - std::io::default_write_fmt::h19251de821527249
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/io/mod.rs:639:11
+   7:     0xaad50afb91d0 - std::io::Write::write_fmt::habed1dab77cd3d90
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/io/mod.rs:1954:13
+   8:     0xaad50afbb918 - std::sys::backtrace::BacktraceLock::print::h2501550d0c1c6b4b
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:42:9
+   9:     0xaad50afbcf70 - std::panicking::default_hook::{{closure}}::hf7dbf92de055b5c9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:300:27
+  10:     0xaad50afbcd7c - std::panicking::default_hook::hf2a38bcea5183167
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:324:9
+  11:     0xaad50af74614 - <alloc::boxed::Box<F,A> as core::ops::function::Fn<Args>>::call::ha326c315e7294b25
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/alloc/src/boxed.rs:1985:9
+  12:     0xaad50af74614 - test::test_main_with_exit_callback::{{closure}}::h9407df14135d4adc
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:145:21
+  13:     0xaad50afbd8ac - <alloc::boxed::Box<F,A> as core::ops::function::Fn<Args>>::call::h87ce39970b09a3b4
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/alloc/src/boxed.rs:1985:9
+  14:     0xaad50afbd8ac - std::panicking::rust_panic_with_hook::h6d5d1ccb6c488eac
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:841:13
+  15:     0xaad50afbd648 - std::panicking::begin_panic_handler::{{closure}}::ha8795fbe1bce1203
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:706:13
+  16:     0xaad50afbbf58 - std::sys::backtrace::__rust_end_short_backtrace::hdbad3a22e9550fec
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:174:18
+  17:     0xaad50afbd32c - __rustc[de2ca18b4c54d5b8]::rust_begin_unwind
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:697:5
+  18:     0xaad50af425f4 - core::panicking::panic_fmt::h77393a3a8fcaf093
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panicking.rs:75:14
+  19:     0xaad50af4290c - core::panicking::assert_failed_inner::ha7e616c7dbd65900
+  20:     0xaad50af44d38 - core::panicking::assert_failed::hab76c86ca1eaab6a
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panicking.rs:403:5
+  21:     0xaad50af43a00 - debug::value_number::hf14e2f049f8f5099
+                               at /tmp/downstream-detector-1-1794467767946252756/candidate/downstream/tests/debug.rs:29:5
+  22:     0xaad50af45cbc - debug::value_number::{{closure}}::h2b566717f0c6dcf9
+                               at /tmp/downstream-detector-1-1794467767946252756/candidate/downstream/tests/debug.rs:28:18
+  23:     0xaad50af43228 - core::ops::function::FnOnce::call_once::hf0757d445370c759
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/ops/function.rs:253:5
+  24:     0xaad50af78c7c - core::ops::function::FnOnce::call_once::h1c6eadf59cb1a497
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/ops/function.rs:253:5
+  25:     0xaad50af78c7c - test::__rust_begin_short_backtrace::hab1532bd8947f827
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:648:18
+  26:     0xaad50af77f60 - test::run_test_in_process::{{closure}}::h856c5b3d4ced2e96
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:671:74
+  27:     0xaad50af77f60 - <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once::he7cebe3c5d34a72e
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panic/unwind_safe.rs:272:9
+  28:     0xaad50af77f60 - std::panicking::catch_unwind::do_call::hd2ff859e732669ad
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:589:40
+  29:     0xaad50af77f60 - std::panicking::catch_unwind::h1236fb107f3723d8
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:552:19
+  30:     0xaad50af77f60 - std::panic::catch_unwind::hbda086126731879f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panic.rs:359:14
+  31:     0xaad50af77f60 - test::run_test_in_process::h1cb23ae95df4e39d
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:671:27
+  32:     0xaad50af77f60 - test::run_test::{{closure}}::h1b82078b246605f9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:592:43
+  33:     0xaad50af47994 - test::run_test::{{closure}}::h3f0309dcb66f4484
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/test/src/lib.rs:622:41
+  34:     0xaad50af47994 - std::sys::backtrace::__rust_begin_short_backtrace::h003559075decd9e1
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/backtrace.rs:158:18
+  35:     0xaad50af4ad14 - std::thread::Builder::spawn_unchecked_::{{closure}}::{{closure}}::hbabc4ab31be0ec8f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/thread/mod.rs:559:17
+  36:     0xaad50af4ad14 - <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once::hc47f8088e55349df
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/panic/unwind_safe.rs:272:9
+  37:     0xaad50af4ad14 - std::panicking::catch_unwind::do_call::h860450983c3dc767
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:589:40
+  38:     0xaad50af4ad14 - std::panicking::catch_unwind::h9777d30b32dea686
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panicking.rs:552:19
+  39:     0xaad50af4ad14 - std::panic::catch_unwind::h4d89e711fbfc114f
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/panic.rs:359:14
+  40:     0xaad50af4ad14 - std::thread::Builder::spawn_unchecked_::{{closure}}::heedf949ce0b56980
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/thread/mod.rs:557:30
+  41:     0xaad50af4ad14 - core::ops::function::FnOnce::call_once{{vtable.shim}}::h386209b3bb37a615
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/core/src/ops/function.rs:253:5
+  42:     0xaad50afbff94 - <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once::h6a67626ac294dae1
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/alloc/src/boxed.rs:1971:9
+  43:     0xaad50afbff94 - std::sys::pal::unix::thread::Thread::new::thread_start::hc19e229732012ef9
+                               at /rustc/1159e78c4747b02ef996e55082b704c09b970588/library/std/src/sys/pal/unix/thread.rs:107:17
+  44:     0xfda74cad2030 - <unknown>
+  45:     0xfda74cb3bf1c - <unknown>
+  46:                0x0 - <unknown>
+
+
+failures:
+    indented
+    number
+    value_number
+
+test result: FAILED. 6 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Locking 1 package to latest compatible version
+      Adding itoa v1.0.19 (/tmp/downstream-detector-1-1794467767946252756/candidate/upstream)
+   Compiling serde_core v1.0.229
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling memchr v2.8.3
+   Compiling object v0.39.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling shlex v2.0.1
+   Compiling cc v1.11.1
+   Compiling syn v3.0.10
+   Compiling ar_archive_writer v0.5.5
+   Compiling zmij v1.0.23
+   Compiling libc v0.2.191
+   Compiling psm v0.1.32
+   Compiling stacker v0.1.25
+   Compiling serde_json v1.0.154
+   Compiling target-tuple v1.0.2
+   Compiling serde v1.0.229
+   Compiling winnow v1.0.5
+   Compiling itoa v1.0.19 (/tmp/downstream-detector-1-1794467767946252756/candidate/upstream)
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling serde_derive v1.0.229
+   Compiling toml_datetime v1.1.3+spec-1.1.0
+   Compiling serde_spanned v1.1.3
+   Compiling serde_json v1.0.154 (/tmp/downstream-detector-1-1794467767946252756/candidate/downstream)
+   Compiling ref-cast v1.0.27
+   Compiling cfg-if v1.0.5
+   Compiling toml_writer v1.2.0+spec-1.1.0
+   Compiling rustversion v1.0.23
+   Compiling toml v1.2.1+spec-1.1.0
+   Compiling ref-cast-impl v1.0.27
+   Compiling syn v2.0.119
+   Compiling dissimilar v1.0.11
+   Compiling termcolor v1.4.1
+   Compiling glob v0.3.4
+   Compiling trybuild v1.0.122
+   Compiling automod v1.0.17
+   Compiling serde_stacker v0.1.14
+   Compiling serde_bytes v0.11.19
+   Compiling indoc v2.0.8
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 42.64s
+     Running unittests src/lib.rs (/tmp/downstream-detector-1-1794467767946252756/candidate/target/debug/deps/serde_json-af56403b3c4c4e8b)
+     Running tests/compiletest.rs (/tmp/downstream-detector-1-1794467767946252756/candidate/target/debug/deps/compiletest-9c2064281745d680)
+     Running tests/debug.rs (/tmp/downstream-detector-1-1794467767946252756/candidate/target/debug/deps/debug-cbfde3245fde5cce)
+error: test failed, to rerun pass `--test debug`

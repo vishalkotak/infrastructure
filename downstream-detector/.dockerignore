@@ -1,0 +1,12 @@
+# The image only needs the Rust sources and the demo fixtures.
+*
+!Cargo.toml
+!Cargo.lock
+!src/
+!src/**
+!examples/
+!examples/rust/
+!examples/rust/**
+!demo/
+!demo/itoa-serde/
+!demo/itoa-serde/**

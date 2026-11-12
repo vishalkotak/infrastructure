@@ -1,0 +1,4 @@
+/target/
+/.local/
+/substrate/local-kubeconfig
+/substrate/local-actor-template.yaml

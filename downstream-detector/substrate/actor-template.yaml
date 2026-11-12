@@ -1,0 +1,18 @@
+# Replace the image digest with the digest of the built demo image.
+metadata:
+  atespace: compatibility
+  name: rust-detector
+workerSelector:
+  matchLabels:
+    workload: rust-detector
+containers:
+  - name: detector
+    image: example.invalid/rust-detector@sha256:REPLACE_WITH_IMAGE_DIGEST
+    wakeupProbe:
+      httpGet:
+        path: /readyz
+        port: 8080
+resources:
+  limits:
+    cpuMillicores: 1000
+    memoryBytes: 1073741824

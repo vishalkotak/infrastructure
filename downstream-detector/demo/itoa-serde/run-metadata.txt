@@ -1,0 +1,20 @@
+Agent Substrate dependency compatibility demo
+
+Verdict: POTENTIAL_REGRESSION
+Actor: compatibility/itoa-serde-fixed-2
+Runtime: local Kind Agent Substrate cluster; rust-detector worker pool
+Network during comparison: disabled by actor policy
+Image: localhost:5001/downstream-detector@sha256:bb8a7681d61e5e69f0763f6611c0aaeaae4d8831a2f89a1dd299e55c3faa398c
+
+Upstream: dtolnay/itoa
+Baseline commit: 9339ca99a43c550b5ee36e2afe524d1c90413461
+Candidate commit: a1e3057dc9a66b3aa2d1197d5cf7e64d2b5eeaa5
+Downstream: serde-rs/json
+Downstream commit: 743dd32ae79719a5817944f3c5b0caa3340b5657
+
+The candidate changes formatting of the integer 1 to return "2". The public
+Rust API remains unchanged. serde_json's baseline test suite passes; its debug
+integration target has six passing tests and three assertion failures against
+the candidate. Cargo stops after that failing target, so later candidate test
+targets are not included in this result. The complete captured report, including
+full Rust backtraces, is in report.txt.
