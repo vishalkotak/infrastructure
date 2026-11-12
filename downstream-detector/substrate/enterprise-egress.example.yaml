@@ -11,3 +11,12 @@ rules:
           - header: Authorization
             prefix: "Bearer "
             credentialUri: ate-secret://k8s.io/default/REPLACE_NAMESPACE/REPLACE_SECRET/token
+  - tlsPassthrough:
+      hostnames:
+        - crates.io
+        - index.crates.io
+        - static.crates.io
+        - pypi.org
+        - files.pythonhosted.org
+      ports:
+        numbers: [443]

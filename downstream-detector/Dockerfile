@@ -1,5 +1,8 @@
 FROM rust:1.90-bookworm
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-pytest python3-setuptools python3-venv && \
+    rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN cargo build --release --locked

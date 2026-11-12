@@ -43,6 +43,10 @@ pub fn run(input: &str) -> Result<String, Box<dyn Error>> {
     for key in ["upstream", "baseline", "candidate", "crate_name"] {
         get(key)?;
     }
+    let ecosystem = config["ecosystem"].as_str().unwrap_or("rust");
+    if !matches!(ecosystem, "rust" | "python") {
+        return Err("ecosystem must be 'rust' or 'python'".into());
+    }
     if has_url_userinfo(get("upstream")?) {
         return Err("upstream URLs must not contain credentials".into());
     }
@@ -208,6 +212,9 @@ fn run_job(c: &Value, job: &Value, run_id: u128, index: usize) -> Result<Value, 
     let mut actor_env = Vec::new();
     let run_token = create_run_token()?;
     actor_env.push(json!({"name":"DETECTOR_RUN_TOKEN", "value":run_token.clone()}));
+    actor_env.push(
+        json!({"name":"DETECTOR_ECOSYSTEM", "value":c["ecosystem"].as_str().unwrap_or("rust")}),
+    );
     if c["cargo_offline"] == false {
         actor_env.push(json!({"name":"DETECTOR_CARGO_OFFLINE", "value":"false"}));
     }
@@ -382,6 +389,7 @@ fn run_command_executor(c: &Value, job: &Value) -> Result<Value, String> {
     let request = json!({
         "protocol_version": 1,
         "operation": "compatibility_check",
+        "ecosystem": c["ecosystem"].as_str().unwrap_or("rust"),
         "upstream": c["upstream"],
         "baseline": c["baseline"],
         "candidate": c["candidate"],
@@ -433,6 +441,9 @@ fn run_command_executor(c: &Value, job: &Value) -> Result<Value, String> {
             "executor returned status {:?}: {}",
             response["status"], response["error"]
         ));
+    }
+    if c["ecosystem"] == "python" && response["ecosystem"] != "python" {
+        return Err("Python executor response must echo ecosystem: 'python'".into());
     }
     let report = response["report"]
         .as_str()

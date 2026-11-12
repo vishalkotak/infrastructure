@@ -6,6 +6,8 @@ rules:
         - crates.io
         - index.crates.io
         - static.crates.io
+        - pypi.org
+        - files.pythonhosted.org
         - github.com
       ports:
         numbers: [443]

@@ -50,9 +50,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     if !(7..=8).contains(&args.len()) || (args[0] != "compare" && args[0] != "serve") {
-        return Err("usage: downstream-detector check <pull-request-url> | discover <crate-name> | <compare|serve> <upstream-git> <baseline-ref> <candidate-ref> <crate-name> <downstream-git> <downstream-ref>".into());
+        return Err("usage: downstream-detector check <pull-request-url> | discover <crate-name> | <compare|serve> <upstream-git> <baseline-ref> <candidate-ref> <package-name> <downstream-git> <downstream-ref>".into());
     }
     let config = Config {
+        ecosystem: env::var("DETECTOR_ECOSYSTEM").unwrap_or_else(|_| "rust".into()),
         upstream: args[1].clone(),
         baseline: args[2].clone(),
         candidate: args[3].clone(),

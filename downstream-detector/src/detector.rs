@@ -7,6 +7,7 @@ use std::{
 };
 
 pub struct Config {
+    pub ecosystem: String,
     pub upstream: String,
     pub baseline: String,
     pub candidate: String,
@@ -16,16 +17,21 @@ pub struct Config {
     pub patch_source: Option<String>,
 }
 
-// Every comparison gets new checkouts and independent Cargo target directories.
-// This prevents build artifacts from the baseline affecting the candidate.
+// Every revision gets fresh checkouts and an independent build environment.
+// This prevents artifacts from the baseline affecting the candidate.
 pub fn compare(config: &Config) -> Result<String, Box<dyn std::error::Error>> {
+    if !matches!(config.ecosystem.as_str(), "rust" | "python") {
+        return Err("ecosystem must be 'rust' or 'python'".into());
+    }
     if config.crate_name.is_empty()
-        || !config
-            .crate_name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        || !config.crate_name.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || c == '-'
+                || c == '_'
+                || (config.ecosystem == "python" && c == '.')
+        })
     {
-        return Err("crate name must contain only letters, digits, '-' or '_'".into());
+        return Err("package name contains unsupported characters for this ecosystem".into());
     }
     let root = env::temp_dir().join(format!(
         "downstream-detector-{}-{}",
@@ -47,6 +53,9 @@ pub fn compare(config: &Config) -> Result<String, Box<dyn std::error::Error>> {
 }
 
 fn compare_in(c: &Config, root: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    if c.ecosystem == "python" {
+        return compare_python(c, root);
+    }
     let baseline = run_revision(c, root, "baseline", &c.baseline)?;
     // Keep the captured output, but release baseline build artifacts before
     // compiling the candidate on actors with limited writable storage.
@@ -145,6 +154,230 @@ fn run_revision(
         return Err(format!("Cargo did not use the {label} patch; check the crate name, source and version constraints.\n{stderr}").into());
     }
     Ok(output)
+}
+
+struct PythonRevision {
+    setup_log: String,
+    setup_failure: Option<String>,
+    tests: Option<Output>,
+}
+
+fn compare_python(c: &Config, root: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let baseline = run_python_revision(c, root, "baseline", &c.baseline)?;
+    let candidate = run_python_revision(c, root, "candidate", &c.candidate)?;
+    let baseline_tests_passed = baseline.tests.as_ref().is_some_and(python_tests_passed);
+    let candidate_tests_passed = candidate.tests.as_ref().is_some_and(python_tests_passed);
+    let verdict = if baseline.setup_failure.is_some() || !baseline_tests_passed {
+        "INCONCLUSIVE_BASELINE_FAILED"
+    } else if candidate.setup_failure.is_some() {
+        "INCONCLUSIVE_CANDIDATE_BUILD_OR_SETUP_FAILED"
+    } else if candidate_tests_passed {
+        "NO_REGRESSION_DETECTED"
+    } else {
+        "POTENTIAL_REGRESSION"
+    };
+    let baseline_setup = baseline
+        .setup_failure
+        .as_ref()
+        .map(|error| format!("{error}\n{}", baseline.setup_log))
+        .unwrap_or_else(|| baseline.setup_log.clone());
+    let candidate_setup = candidate
+        .setup_failure
+        .as_ref()
+        .map(|error| format!("{error}\n{}", candidate.setup_log))
+        .unwrap_or_else(|| candidate.setup_log.clone());
+    Ok(format!(
+        "Verdict: {verdict}\n\nBaseline setup:\n{}\nBaseline tests:\n{}\n\nCandidate setup:\n{}\nCandidate tests:\n{}",
+        baseline_setup,
+        baseline.tests.as_ref().map(format_python_output).unwrap_or_else(|| "not run\n".into()),
+        candidate_setup,
+        candidate.tests.as_ref().map(format_python_output).unwrap_or_else(|| "not run\n".into()),
+    ))
+}
+
+fn python_tests_passed(output: &Output) -> bool {
+    output.status.success()
+        && !String::from_utf8_lossy(&output.stdout).contains("Ran 0 tests")
+        && !String::from_utf8_lossy(&output.stderr).contains("Ran 0 tests")
+}
+
+fn run_python_revision(
+    c: &Config,
+    root: &Path,
+    label: &str,
+    revision: &str,
+) -> Result<PythonRevision, Box<dyn std::error::Error>> {
+    let dir = root.join(label);
+    fs::create_dir(&dir)?;
+    let upstream = checkout(&c.upstream, revision, &dir.join("upstream"))?;
+    if label == "candidate" {
+        if let Ok(expected) = env::var("DETECTOR_EXPECT_CANDIDATE_SHA") {
+            let mut command = Command::new("git");
+            command
+                .current_dir(&upstream)
+                .args(["rev-parse", "--verify", "HEAD"]);
+            let actual =
+                crate::process::run_limited(&mut command, process_timeout()?, 1024 * 1024)?;
+            if !actual.status.success()
+                || String::from_utf8_lossy(&actual.stdout).trim() != expected
+            {
+                return Err(
+                    format!("candidate moved during the check: expected {expected}").into(),
+                );
+            }
+        }
+    }
+    let downstream = checkout(&c.downstream, &c.downstream_ref, &dir.join("downstream"))?;
+    let venv = dir.join("venv");
+    let mut setup_log = String::new();
+    let timeout = process_timeout()?;
+    let setup =
+        |command: &mut Command, stage: &str, logs: &mut String| match crate::process::run_limited(
+            command,
+            timeout,
+            4 * 1024 * 1024,
+        ) {
+            Ok(output) => {
+                logs.push_str(&format!(
+                    "[{stage}]\n{}{}\n",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    Err(format!("{stage} failed ({}).", status(&output)))
+                }
+            }
+            Err(error) => Err(format!("{stage} could not run: {error}")),
+        };
+    let mut command = Command::new("python3");
+    command
+        .args(["-m", "venv", "--system-site-packages"])
+        .arg(&venv);
+    if let Err(error) = setup(&mut command, "create virtual environment", &mut setup_log) {
+        return Ok(PythonRevision {
+            setup_log,
+            setup_failure: Some(error),
+            tests: None,
+        });
+    }
+    let python = venv.join("bin/python");
+    for requirement in [
+        "requirements.txt",
+        "requirements-test.txt",
+        "test-requirements.txt",
+        "requirements-dev.txt",
+    ] {
+        let path = downstream.join(requirement);
+        if path.is_file() {
+            let mut command = Command::new(&python);
+            command
+                .current_dir(&downstream)
+                .args(["-m", "pip", "install", "--disable-pip-version-check", "-r"])
+                .arg(&path);
+            if let Err(error) = setup(
+                &mut command,
+                &format!("install {requirement}"),
+                &mut setup_log,
+            ) {
+                return Ok(PythonRevision {
+                    setup_log,
+                    setup_failure: Some(error),
+                    tests: None,
+                });
+            }
+        }
+    }
+    if ["pyproject.toml", "setup.py", "setup.cfg"]
+        .iter()
+        .any(|name| downstream.join(name).is_file())
+    {
+        let mut command = Command::new(&python);
+        command.current_dir(&downstream).args([
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "-e",
+            ".",
+        ]);
+        if let Err(error) = setup(&mut command, "install downstream project", &mut setup_log) {
+            return Ok(PythonRevision {
+                setup_log,
+                setup_failure: Some(error),
+                tests: None,
+            });
+        }
+    }
+    let mut command = Command::new(&python);
+    command
+        .current_dir(&downstream)
+        .args([
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-deps",
+            "--force-reinstall",
+        ])
+        .arg(&upstream);
+    if let Err(error) = setup(
+        &mut command,
+        "install candidate dependency source",
+        &mut setup_log,
+    ) {
+        return Ok(PythonRevision {
+            setup_log,
+            setup_failure: Some(error),
+            tests: None,
+        });
+    }
+    let mut pytest_probe = Command::new(&python);
+    pytest_probe.args(["-c", "import pytest"]);
+    let has_pytest = crate::process::run_limited(&mut pytest_probe, Duration::from_secs(10), 1024)?
+        .status
+        .success();
+    let declares_pytest = [
+        "pyproject.toml",
+        "setup.cfg",
+        "requirements.txt",
+        "requirements-test.txt",
+        "test-requirements.txt",
+        "requirements-dev.txt",
+    ]
+    .iter()
+    .filter_map(|name| fs::read_to_string(downstream.join(name)).ok())
+    .any(|text| text.to_ascii_lowercase().contains("pytest"));
+    if declares_pytest && !has_pytest {
+        return Ok(PythonRevision {
+            setup_log,
+            setup_failure: Some("pytest is declared by the downstream project but is unavailable in the detector image or test dependencies".into()),
+            tests: None,
+        });
+    }
+    let mut command = Command::new(&python);
+    command.current_dir(&downstream);
+    if has_pytest {
+        command.args(["-m", "pytest", "-q"]);
+    } else {
+        command.args(["-m", "unittest", "discover", "-v"]);
+    }
+    let tests = crate::process::run_limited(&mut command, process_timeout()?, 4 * 1024 * 1024)?;
+    Ok(PythonRevision {
+        setup_log,
+        setup_failure: None,
+        tests: Some(tests),
+    })
+}
+
+fn format_python_output(output: &Output) -> String {
+    format!(
+        "exit {}\n{}{}",
+        status(output),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
 }
 
 fn checkout(

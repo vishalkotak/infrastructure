@@ -27,6 +27,7 @@ The protocol is versioned and currently sends:
 {
   "protocol_version": 1,
   "operation": "compatibility_check",
+  "ecosystem": "rust",
   "upstream": "https://github.com/OWNER/CRATE/.git",
   "baseline": "base-commit-sha",
   "candidate": "refs/pull/123/head",
@@ -41,14 +42,14 @@ The protocol is versioned and currently sends:
 }
 ```
 
-The adapter should run the existing detector comparison for the request in a fresh, isolated environment, for example by invoking its `compare` command with the upstream, baseline, candidate, crate name, downstream, and downstream revision fields. `candidate_sha` pins the moving PR ref: reject the run if fetching `candidate` resolves to a different commit. `git_auth_host` is present only when the run needs authenticated access to that host. Apply the requested resource limits and the adapter's own network and secret policies. Do not make repository code or Cargo build scripts share controller credentials or control-plane access.
+The `ecosystem` is `rust` or `python`; pass it to the detector as `DETECTOR_ECOSYSTEM`. The `crate_name` field contains the package name for either ecosystem for protocol compatibility. Run the comparison in a fresh, isolated environment. `candidate_sha` pins the moving PR ref: reject the run if fetching `candidate` resolves to a different commit. `git_auth_host` is present only when the run needs authenticated access to that host. Apply the requested resource limits and your own network and secret policies. Do not make repository code or build/test processes share controller credentials or control-plane access.
 
 ## Response
 
-On completion, write a single JSON object to standard output:
+On completion, write a single JSON object to standard output. Echo the requested ecosystem in the response; Python runs are rejected if it is missing or different.
 
 ```json
-{"status":"completed","executor":"my-runner","report":"Verdict: NO_REGRESSION_DETECTED\\n... full test logs ..."}
+{"status":"completed","executor":"my-runner","ecosystem":"rust","report":"Verdict: NO_REGRESSION_DETECTED\\n... full test logs ..."}
 ```
 
 The `report` string is stored with the PR report and used to produce the CLI summary. For an execution failure, exit nonzero and write diagnostics to standard error. Invalid JSON, a nonzero exit, or a response without `status: completed` and a string `report` is recorded as an executor error.

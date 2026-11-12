@@ -14,10 +14,10 @@ struct Dependent {
     repository: String,
     clone_url: String,
     revision: String,
-    downloads: u64,
+    priority: u64,
 }
 
-type CompanyDiscovery = (Vec<Dependent>, Vec<Value>, usize);
+type RepositoryDiscovery = (Vec<Dependent>, Vec<Value>, usize);
 
 pub struct CheckResult {
     pub summary: String,
@@ -44,83 +44,87 @@ pub fn check(pr_url: &str) -> Result<CheckResult, Box<dyn Error>> {
         head_sha: sha(&pr_json["head"]["sha"], "PR head SHA")?.to_owned(),
     };
 
-    let crate_name = changed_crate(&pr, &api)?;
-    if crate_name.is_empty()
-        || !crate_name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err("changed Cargo package has an invalid crate name".into());
-    }
-    let user_agent = env::var("CRATES_IO_USER_AGENT").map_err(|_| {
-        "set CRATES_IO_USER_AGENT once with an identifying name and contact before using check"
-    })?;
-    let (discovery, public_discovery_issue): (Value, Option<String>) =
-        match crate::discovery::discover(&crate_name, &user_agent) {
-            Ok(body) => (serde_json::from_str(&body)?, None),
-            Err(error)
-                if env::var("DETECTOR_GITHUB_ORG").is_ok() && error.to_string().contains("404") =>
-            {
-                (json!({"upstream":crate_name,"dependents":[]}), None)
-            }
-            Err(error) if env::var("DETECTOR_GITHUB_ORG").is_ok() => {
-                eprintln!("crates.io discovery incomplete ({error}); checking configured company repositories but marking coverage incomplete");
-                (
-                    json!({"upstream":crate_name,"dependents":[]}),
-                    Some(error.to_string()),
-                )
-            }
-            Err(error) => return Err(error),
-        };
+    let (ecosystem, package_name) = changed_package(&pr, &api)?;
+    validate_package_name(&ecosystem, &package_name)?;
     let max_jobs = env::var("DETECTOR_MAX_JOBS")
         .unwrap_or_else(|_| "5".into())
         .parse::<usize>()?;
     if max_jobs == 0 || max_jobs > 32 {
         return Err("DETECTOR_MAX_JOBS must be between 1 and 32".into());
     }
-    let plan = crate::plan::rank(&discovery.to_string())?;
     let lookup_budget = env::var("DETECTOR_MAX_REPOSITORY_LOOKUPS")
         .unwrap_or_else(|_| "50".into())
         .parse::<usize>()?;
     if lookup_budget == 0 || lookup_budget > 1000 {
         return Err("DETECTOR_MAX_REPOSITORY_LOOKUPS must be between 1 and 1000".into());
     }
-    let mut dependents = Vec::new();
-    let company_budget = if plan.repositories.is_empty() {
-        lookup_budget
+    let (dependents, skipped, discovered_repositories, public_discovery_issue) = if ecosystem
+        == "rust"
+    {
+        let user_agent = env::var("CRATES_IO_USER_AGENT").map_err(|_| {
+            "set CRATES_IO_USER_AGENT once with an identifying name and contact before using check"
+        })?;
+        let (discovery, public_issue): (Value, Option<String>) = match crate::discovery::discover(
+            &package_name,
+            &user_agent,
+        ) {
+            Ok(body) => (serde_json::from_str(&body)?, None),
+            Err(error)
+                if env::var("DETECTOR_GITHUB_ORG").is_ok() && error.to_string().contains("404") =>
+            {
+                (json!({"upstream":package_name,"dependents":[]}), None)
+            }
+            Err(error) if env::var("DETECTOR_GITHUB_ORG").is_ok() => {
+                eprintln!("crates.io discovery incomplete ({error}); checking configured company repositories but marking coverage incomplete");
+                (
+                    json!({"upstream":package_name,"dependents":[]}),
+                    Some(error.to_string()),
+                )
+            }
+            Err(error) => return Err(error),
+        };
+        let plan = crate::plan::rank(&discovery.to_string())?;
+        let company_budget = if plan.repositories.is_empty() {
+            lookup_budget
+        } else {
+            lookup_budget.saturating_sub(max_jobs).max(1)
+        };
+        let (company, mut skipped, company_lookups) =
+            discover_company_repositories(&package_name, max_jobs, company_budget)?;
+        let mut dependents = company;
+        if let Some(issue) = &public_issue {
+            skipped.push(json!({"source":"crates.io", "reason":issue}));
+        }
+        let mut lookups = company_lookups;
+        for (repository, downloads, _) in &plan.repositories {
+            if dependents.len() >= max_jobs || lookups >= lookup_budget {
+                break;
+            }
+            let clone_url = format!("{repository}.git");
+            if dependents.iter().any(|dep| dep.clone_url == clone_url) {
+                continue;
+            }
+            lookups += 1;
+            match latest_revision(repository, *downloads, "github.com") {
+                Ok(dep) => dependents.push(dep),
+                Err(error) => {
+                    skipped.push(json!({"repository":repository,"reason":error.to_string()}))
+                }
+            }
+        }
+        (
+            dependents,
+            skipped,
+            plan.eligible_repositories,
+            public_issue,
+        )
     } else {
-        lookup_budget.saturating_sub(max_jobs).max(1)
+        let (dependents, skipped, discovered) =
+            discover_python_repositories(&package_name, max_jobs, lookup_budget)?;
+        (dependents, skipped, discovered, None)
     };
-    let (company_repositories, mut skipped, company_lookups) =
-        discover_company_repositories(&crate_name, max_jobs, company_budget)?;
-    for dep in company_repositories {
-        dependents.push(dep);
-        if dependents.len() >= max_jobs {
-            break;
-        }
-    }
-    if let Some(issue) = &public_discovery_issue {
-        skipped.push(json!({"source":"crates.io", "reason":issue}));
-    }
-    let mut lookups = company_lookups;
-    for (repository, downloads, _) in &plan.repositories {
-        if dependents.len() >= max_jobs || lookups >= lookup_budget {
-            break;
-        }
-        let clone_url = format!("{repository}.git");
-        if dependents.iter().any(|dep| dep.clone_url == clone_url) {
-            continue;
-        }
-        lookups += 1;
-        match latest_revision(repository, *downloads, "github.com") {
-            Ok(dep) => dependents.push(dep),
-            Err(e) => skipped.push(json!({"repository":repository,"reason":e.to_string()})),
-        }
-    }
     if dependents.is_empty() {
-        return Err(
-            format!("no runnable public downstream repositories found for {crate_name}").into(),
-        );
+        return Err(format!("no runnable downstream repositories found for {package_name}").into());
     }
     let planned_jobs: Vec<Value> = dependents
         .iter()
@@ -129,7 +133,7 @@ pub fn check(pr_url: &str) -> Result<CheckResult, Box<dyn Error>> {
                 "repository":d.repository,
                 "clone_url":d.clone_url,
                 "revision":d.revision,
-                "download_priority":d.downloads,
+                "priority":d.priority,
             })
         })
         .collect();
@@ -137,13 +141,15 @@ pub fn check(pr_url: &str) -> Result<CheckResult, Box<dyn Error>> {
         return Ok(CheckResult {
             summary: serde_json::to_string_pretty(&json!({
             "pull_request":pr_url,
-            "crate":crate_name,
+            "ecosystem":ecosystem,
+            "package":package_name,
             "baseline":pr.base_sha,
             "candidate":pr.head_sha,
-            "discovered_repositories":plan.eligible_repositories,
+            "discovered_repositories":discovered_repositories,
             "selected_repositories":dependents.len(),
             "skipped_repositories":skipped,
-            "coverage_complete":public_discovery_issue.is_none(),
+            "coverage_complete":ecosystem == "rust" && public_discovery_issue.is_none(),
+            "discovery_source":if ecosystem == "rust" { "crates.io reverse dependencies" } else { "GitHub code search sample; not exhaustive" },
             "planned_jobs":planned_jobs,
             }))?,
             succeeded: false,
@@ -162,11 +168,12 @@ pub fn check(pr_url: &str) -> Result<CheckResult, Box<dyn Error>> {
         "baseline":pr.base_sha,
         "candidate":format!("refs/pull/{}/head",pr.number),
         "candidate_sha":pr.head_sha,
-        "crate_name":crate_name,
+        "crate_name":package_name,
+        "ecosystem":ecosystem,
         "max_jobs":max_jobs,
         "max_parallel":parallel,
         "cargo_offline":false,
-        "jobs":dependents.iter().map(|d|json!({"repository":d.clone_url,"revision":d.revision,"priority":d.downloads})).collect::<Vec<_>>(),
+        "jobs":dependents.iter().map(|d|json!({"repository":d.clone_url,"revision":d.revision,"priority":d.priority})).collect::<Vec<_>>(),
     });
     match executor.as_str() {
         "substrate" => {
@@ -216,13 +223,15 @@ pub fn check(pr_url: &str) -> Result<CheckResult, Box<dyn Error>> {
     let results: Value = serde_json::from_str(&crate::batch::run(&config.to_string())?)?;
     let full_report = json!({
         "pull_request":pr_url,
-        "crate":crate_name,
+        "ecosystem":ecosystem,
+        "package":package_name,
         "baseline":pr.base_sha,
         "candidate":pr.head_sha,
-        "discovered_repositories":plan.eligible_repositories,
+        "discovered_repositories":discovered_repositories,
         "selected_repositories":dependents.len(),
         "skipped_repositories":skipped,
-        "coverage_complete":public_discovery_issue.is_none(),
+        "coverage_complete":ecosystem == "rust" && public_discovery_issue.is_none(),
+        "discovery_source":if ecosystem == "rust" { "crates.io reverse dependencies" } else { "GitHub code search sample; not exhaustive" },
         "results":results,
     });
     let report_dir =
@@ -246,9 +255,12 @@ pub fn check(pr_url: &str) -> Result<CheckResult, Box<dyn Error>> {
         .cloned()
         .unwrap_or_default();
     let mut summary = format!(
-        "PR check: {pr_url}\nCrate: {crate_name}\nDownstream repositories tested: {}\n",
+        "PR check: {pr_url}\nPackage: {package_name} ({ecosystem})\nDownstream repositories tested: {}\n",
         runs.len()
     );
+    if ecosystem == "python" {
+        summary.push_str("Discovery: GitHub code-search sample; not exhaustive.\n");
+    }
     let mut succeeded = public_discovery_issue.is_none();
     if let Some(issue) = public_discovery_issue {
         summary.push_str(&format!(
@@ -435,7 +447,7 @@ fn sha<'a>(value: &'a Value, label: &str) -> Result<&'a str, Box<dyn Error>> {
         .ok_or_else(|| format!("missing or invalid {label}").into())
 }
 
-fn changed_crate(pr: &PullRequest, api: &str) -> Result<String, Box<dyn Error>> {
+fn changed_package(pr: &PullRequest, api: &str) -> Result<(String, String), Box<dyn Error>> {
     let mut files = Vec::new();
     for page_number in 1..=100 {
         let body = get(&format!(
@@ -479,23 +491,40 @@ fn changed_crate(pr: &PullRequest, api: &str) -> Result<String, Box<dyn Error>> 
         .ok_or("missing GitHub repository tree")?
         .iter()
         .filter_map(|row| row["path"].as_str())
-        .filter(|path| path.ends_with("Cargo.toml"))
+        .filter(|path| {
+            ["Cargo.toml", "pyproject.toml", "setup.cfg", "setup.py"]
+                .iter()
+                .any(|name| path.rsplit('/').next() == Some(*name))
+        })
         .map(str::to_owned)
         .collect();
-    let mut package_manifests = BTreeMap::new();
+    let mut package_manifests = BTreeMap::<(String, String), String>::new();
     for file in files {
         let mut directory = file.rsplit_once('/').map(|v| v.0.to_owned());
-        if file == "Cargo.toml" {
+        if ["Cargo.toml", "pyproject.toml", "setup.cfg", "setup.py"].contains(&file.as_str()) {
             directory = Some(String::new());
         }
         while let Some(dir) = directory {
-            let path = if dir.is_empty() {
-                "Cargo.toml".to_owned()
-            } else {
-                format!("{dir}/Cargo.toml")
-            };
-            if manifests.iter().any(|p| p == &path) {
-                package_manifests.insert(path.clone(), ());
+            let found = [
+                ("rust", "Cargo.toml"),
+                ("python", "pyproject.toml"),
+                ("python", "setup.cfg"),
+                ("python", "setup.py"),
+            ]
+            .iter()
+            .find_map(|(ecosystem, filename)| {
+                let path = if dir.is_empty() {
+                    (*filename).to_owned()
+                } else {
+                    format!("{dir}/{filename}")
+                };
+                manifests
+                    .iter()
+                    .any(|manifest| manifest == &path)
+                    .then(|| ((*ecosystem).to_owned(), dir.clone(), path))
+            });
+            if let Some((ecosystem, package_dir, manifest)) = found {
+                package_manifests.insert((ecosystem, package_dir), manifest);
                 break;
             }
             directory = if dir.is_empty() {
@@ -511,12 +540,12 @@ fn changed_crate(pr: &PullRequest, api: &str) -> Result<String, Box<dyn Error>> 
     }
     if package_manifests.len() != 1 {
         return Err(format!(
-            "expected changes in one Rust package; found {}. Split multi-crate PRs before checking",
+            "expected changes in one Rust or Python package; found {}. Split multi-package PRs before checking",
             package_manifests.len()
         )
         .into());
     }
-    let manifest_path = package_manifests.keys().next().unwrap();
+    let ((ecosystem, _), manifest_path) = package_manifests.iter().next().unwrap();
     let encoded_manifest_path = manifest_path
         .split('/')
         .map(url_encode)
@@ -526,9 +555,13 @@ fn changed_crate(pr: &PullRequest, api: &str) -> Result<String, Box<dyn Error>> 
         "{api}/repos/{}/{}/contents/{encoded_manifest_path}?ref={}",
         pr.owner, pr.repo, pr.head_sha
     ))?;
-    let crate_name =
-        parse_package_name(&body).ok_or("could not read [package].name from changed Cargo.toml")?;
-    Ok(crate_name)
+    let package_name = if ecosystem == "rust" {
+        parse_package_name(&body)
+    } else {
+        parse_python_package_name(manifest_path, &body)
+    }
+    .ok_or_else(|| format!("could not read a static package name from {manifest_path}"))?;
+    Ok((ecosystem.clone(), package_name))
 }
 
 fn parse_package_name(manifest: &str) -> Option<String> {
@@ -551,9 +584,80 @@ fn parse_package_name(manifest: &str) -> Option<String> {
     None
 }
 
+fn parse_python_package_name(path: &str, manifest: &str) -> Option<String> {
+    if path.ends_with("pyproject.toml") {
+        let mut section = "";
+        for line in manifest.lines() {
+            let line = line.split('#').next()?.trim();
+            if line.starts_with('[') && line.ends_with(']') {
+                section = line.trim_matches(['[', ']']);
+            } else if matches!(section, "project" | "tool.poetry") {
+                if let Some((key, value)) = line.split_once('=') {
+                    if key.trim() == "name" {
+                        return clean_quoted_value(value);
+                    }
+                }
+            }
+        }
+    } else if path.ends_with("setup.cfg") {
+        let mut metadata = false;
+        for line in manifest.lines() {
+            let line = line.split('#').next()?.trim();
+            if line.starts_with('[') && line.ends_with(']') {
+                metadata = line.eq_ignore_ascii_case("[metadata]");
+            } else if metadata {
+                if let Some((key, value)) = line.split_once('=') {
+                    if key.trim().eq_ignore_ascii_case("name") {
+                        return clean_manifest_value(value);
+                    }
+                }
+            }
+        }
+    } else if path.ends_with("setup.py") {
+        for line in manifest.lines() {
+            let line = line.trim().strip_prefix("setup(").unwrap_or(line.trim());
+            if let Some((key, value)) = line.split_once('=') {
+                if key.trim().trim_matches(['(', ',', ' ']) == "name" {
+                    return clean_quoted_value(value.trim().trim_end_matches([',', ')']).trim());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn clean_manifest_value(value: &str) -> Option<String> {
+    let value = value
+        .trim()
+        .trim_end_matches(',')
+        .trim()
+        .trim_matches(['"', '\'']);
+    (!value.is_empty() && !value.starts_with("{") && !value.starts_with("[")).then(|| value.into())
+}
+
+fn clean_quoted_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    if !(value.starts_with('"') && value.ends_with('"')
+        || value.starts_with('\'') && value.ends_with('\''))
+    {
+        return None;
+    }
+    clean_manifest_value(value)
+}
+
+fn validate_package_name(ecosystem: &str, name: &str) -> Result<(), Box<dyn Error>> {
+    let valid_chars = name.chars().all(|c| {
+        c.is_ascii_alphanumeric() || c == '-' || c == '_' || (ecosystem == "python" && c == '.')
+    });
+    if name.is_empty() || !valid_chars {
+        return Err(format!("changed {ecosystem} package has an invalid package name").into());
+    }
+    Ok(())
+}
+
 fn latest_revision(
     repository: &str,
-    downloads: u64,
+    priority: u64,
     host: &str,
 ) -> Result<Dependent, Box<dyn Error>> {
     let (owner, name) = github_repo(repository, host)?;
@@ -573,7 +677,7 @@ fn latest_revision(
         repository: format!("{owner}/{name}"),
         clone_url: format!("https://{host}/{owner}/{name}.git"),
         revision,
-        downloads,
+        priority,
     })
 }
 
@@ -608,7 +712,7 @@ fn discover_company_repositories(
     crate_name: &str,
     limit: usize,
     lookup_budget: usize,
-) -> Result<CompanyDiscovery, Box<dyn Error>> {
+) -> Result<RepositoryDiscovery, Box<dyn Error>> {
     let Ok(org) = env::var("DETECTOR_GITHUB_ORG") else {
         return Ok((Vec::new(), Vec::new(), 0));
     };
@@ -683,6 +787,130 @@ fn discover_company_repositories(
     Ok((ready, skipped, attempts))
 }
 
+fn discover_python_repositories(
+    package: &str,
+    limit: usize,
+    lookup_budget: usize,
+) -> Result<RepositoryDiscovery, Box<dyn Error>> {
+    let host = env::var("DETECTOR_GITHUB_HOST").unwrap_or_else(|_| "github.com".into());
+    let org = env::var("DETECTOR_GITHUB_ORG").ok();
+    if let Some(org) = &org {
+        if org.is_empty()
+            || !org
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        {
+            return Err("DETECTOR_GITHUB_ORG must be a GitHub organization or user name".into());
+        }
+    }
+    if host.is_empty()
+        || !host
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-'))
+    {
+        return Err("invalid DETECTOR_GITHUB_HOST".into());
+    }
+    let api_host = if host == "github.com" {
+        "api.github.com"
+    } else {
+        host.as_str()
+    };
+    let has_token = match token_env_for_api_host(api_host, Some(&host)) {
+        Some("GITHUB_TOKEN") => env::var("GITHUB_TOKEN")
+            .or_else(|_| env::var("GH_TOKEN"))
+            .is_ok(),
+        Some("DETECTOR_GHES_TOKEN") => env::var("DETECTOR_GHES_TOKEN").is_ok(),
+        _ => false,
+    };
+    if !has_token {
+        return Err("Python consumer discovery uses GitHub code search; set a read-only GitHub API token (GITHUB_TOKEN or DETECTOR_GHES_TOKEN)".into());
+    }
+    let priorities: BTreeMap<String, u64> = match env::var("DETECTOR_PRIORITY_FILE") {
+        Ok(path) => serde_json::from_str(&std::fs::read_to_string(path)?)?,
+        Err(_) => BTreeMap::new(),
+    };
+    let api = api_root(&host);
+    let mut repos = BTreeMap::<String, u64>::new();
+    let mut skipped = vec![
+        json!({"source":"GitHub code search","reason":"Python discovery is a best-effort sample, limited to up to 100 code matches per manifest; it cannot guarantee full ecosystem coverage"}),
+    ];
+    let mut scopes = vec![None];
+    if let Some(org) = org.as_deref() {
+        scopes.push(Some(org));
+    }
+    for scope in scopes {
+        for filename in [
+            "pyproject.toml",
+            "requirements.txt",
+            "setup.cfg",
+            "setup.py",
+        ] {
+            let query = match scope {
+                Some(org) => format!(
+                    "{}+filename%3A{}+org%3A{}",
+                    url_encode(&normalize_python_package_name(package)),
+                    filename,
+                    url_encode(org)
+                ),
+                None => format!(
+                    "{}+filename%3A{}",
+                    url_encode(&normalize_python_package_name(package)),
+                    filename
+                ),
+            };
+            let url = format!("{api}/search/code?q={query}&per_page=100&page=1");
+            let response: Value = serde_json::from_str(&get(&url)?)?;
+            let items = response["items"]
+                .as_array()
+                .ok_or("GitHub code search response is missing items")?;
+            for (index, item) in items.iter().enumerate() {
+                if let Some(full_name) = item["repository"]["full_name"].as_str() {
+                    let relevance = 10000u64.saturating_sub(index as u64);
+                    let priority = priorities
+                        .get(full_name)
+                        .map(|value| 1_000_000u64.saturating_add(*value))
+                        .unwrap_or(relevance);
+                    repos
+                        .entry(full_name.to_owned())
+                        .and_modify(|existing| *existing = (*existing).max(priority))
+                        .or_insert(priority);
+                }
+            }
+        }
+    }
+    let discovered = repos.len();
+    let mut selected: Vec<_> = repos.into_iter().collect();
+    selected.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let mut ready = Vec::new();
+    for (attempts, (repository, priority)) in selected.into_iter().enumerate() {
+        if ready.len() >= limit || attempts >= lookup_budget {
+            break;
+        }
+        match latest_revision(&format!("https://{host}/{repository}"), priority, &host) {
+            Ok(dependent) => ready.push(dependent),
+            Err(error) => skipped.push(json!({"repository":repository,"reason":error.to_string()})),
+        }
+    }
+    Ok((ready, skipped, discovered))
+}
+
+fn normalize_python_package_name(name: &str) -> String {
+    let mut normalized = String::new();
+    let mut separator = false;
+    for character in name.chars() {
+        if matches!(character, '-' | '_' | '.') {
+            separator = true;
+        } else {
+            if separator && !normalized.is_empty() {
+                normalized.push('-');
+            }
+            separator = false;
+            normalized.push(character.to_ascii_lowercase());
+        }
+    }
+    normalized
+}
+
 fn url_encode(value: &str) -> String {
     let mut encoded = String::new();
     for byte in value.bytes() {
@@ -698,8 +926,9 @@ fn url_encode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        api_root, approved_github_host, github_repo, parse_package_name, parse_pr_url,
-        token_env_for_api_host,
+        api_root, approved_github_host, github_repo, normalize_python_package_name,
+        parse_package_name, parse_pr_url, parse_python_package_name, token_env_for_api_host,
+        validate_package_name,
     };
 
     #[test]
@@ -754,6 +983,40 @@ mod tests {
             parse_package_name("[workspace]\nname = \"not-a-package\""),
             None
         );
+    }
+
+    #[test]
+    fn parses_common_static_python_package_names() {
+        assert_eq!(
+            normalize_python_package_name("My.Package_Name"),
+            "my-package-name"
+        );
+        assert_eq!(
+            parse_python_package_name("pyproject.toml", "[project]\nname = 'fast-api'\n"),
+            Some("fast-api".into())
+        );
+        assert_eq!(
+            parse_python_package_name("pyproject.toml", "[tool.poetry]\nname = \"my_pkg\"\n"),
+            Some("my_pkg".into())
+        );
+        assert_eq!(
+            parse_python_package_name("setup.cfg", "[metadata]\nname = sample.pkg\n"),
+            Some("sample.pkg".into())
+        );
+        assert_eq!(
+            parse_python_package_name("setup.py", "setup(\n    name='legacy-pkg',\n)"),
+            Some("legacy-pkg".into())
+        );
+        assert_eq!(
+            parse_python_package_name("setup.py", "setup(name='one-line-pkg')"),
+            Some("one-line-pkg".into())
+        );
+        assert!(
+            parse_python_package_name("pyproject.toml", "[project]\nname = dynamic_name\n")
+                .is_none()
+        );
+        assert!(validate_package_name("python", "Sample.pkg_1").is_ok());
+        assert!(validate_package_name("python", "../evil").is_err());
     }
 
     #[test]

@@ -204,6 +204,103 @@ fn catches_a_real_downstream_regression() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn catches_a_python_downstream_regression() {
+    let root = std::env::temp_dir().join(format!(
+        "detector-python-test-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let upstream = root.join("upstream");
+    let downstream = root.join("downstream");
+    fs::create_dir_all(upstream.join("src/example_pkg")).unwrap();
+    fs::create_dir_all(downstream.join("tests")).unwrap();
+    fs::write(
+        upstream.join("pyproject.toml"),
+        "[project]\nname = 'example.pkg'\nversion = '0.1.0'\n",
+    )
+    .unwrap();
+    fs::write(
+        upstream.join("src/example_pkg/__init__.py"),
+        "def answer():\n    return 42\n",
+    )
+    .unwrap();
+    git(&upstream, &["init", "-q"]);
+    git(&upstream, &["add", "."]);
+    git(
+        &upstream,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "baseline",
+        ],
+    );
+    git(&upstream, &["tag", "baseline"]);
+    fs::write(
+        upstream.join("src/example_pkg/__init__.py"),
+        "def answer():\n    return 41\n",
+    )
+    .unwrap();
+    git(&upstream, &["add", "."]);
+    git(
+        &upstream,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "candidate",
+        ],
+    );
+    fs::write(downstream.join("tests/__init__.py"), "").unwrap();
+    fs::write(downstream.join("tests/test_api.py"), "import unittest\nfrom example_pkg import answer\n\nclass ApiTest(unittest.TestCase):\n    def test_answer(self):\n        self.assertEqual(answer(), 42)\n").unwrap();
+    git(&downstream, &["init", "-q"]);
+    git(&downstream, &["add", "."]);
+    git(
+        &downstream,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "consumer",
+        ],
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_downstream-detector"))
+        .args([
+            "compare",
+            upstream.to_str().unwrap(),
+            "baseline",
+            "HEAD",
+            "example.pkg",
+            downstream.to_str().unwrap(),
+            "HEAD",
+        ])
+        .env("DETECTOR_ECOSYSTEM", "python")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = String::from_utf8_lossy(&output.stdout);
+    assert!(report.contains("POTENTIAL_REGRESSION"), "{report}");
+    assert!(report.contains("test_answer"), "{report}");
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn request(address: std::net::SocketAddr, request: &str) -> std::io::Result<String> {
     let mut stream = TcpStream::connect(address)?;
     stream.write_all(request.as_bytes())?;

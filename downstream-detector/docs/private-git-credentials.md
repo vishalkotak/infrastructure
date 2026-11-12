@@ -47,7 +47,7 @@ These steps assume the cluster has the Substrate Kubernetes Secrets credential p
    cp substrate/enterprise-egress.example.yaml substrate/enterprise-egress.yaml
    ```
 
-   Replace `github.example.com`, `REPLACE_NAMESPACE`, and `REPLACE_SECRET` with the Git hostname and Secret details. The final credential URI should have the form `ate-secret://k8s.io/default/<secret-namespace>/<secret-name>/<key>`. Keep the `https` rule: it lets the gateway inspect the request and replace the placeholder header. The detector mounts Substrate's MITM and system-root trust bundles for Git TLS.
+   Replace `github.example.com`, `REPLACE_NAMESPACE`, and `REPLACE_SECRET` with the Git hostname and Secret details. The final credential URI should have the form `ate-secret://k8s.io/default/<secret-namespace>/<secret-name>/<key>`. Keep the `https` rule: it lets the gateway inspect the request and replace the placeholder header. The example also allows Cargo and PyPI's public hosts; add your internal index host if needed. The detector mounts Substrate's MITM and system-root trust bundles for Git TLS.
 
 5. **Verify cluster authorization and policy before a PR run.** Ensure the Kubernetes credential provider is ready and its atespace policy is active. Check that the policy uses the intended hostname and Secret URI, then run a private-repository comparison with a small job budget. The gateway denies requests if the provider is missing, the Secret cannot be read, or the atespace is not authorized.
 
@@ -65,6 +65,8 @@ export DETECTOR_ATESPACE=compatibility
 ```
 
 `DETECTOR_GITHUB_HOST` selects the Enterprise API and the API token. `DETECTOR_GITHUB_ORG` enables company repository discovery. `DETECTOR_GHES_TOKEN` is the controller's API token; load it from your secret manager, not a literal in a checked-in shell profile or command. `DETECTOR_GIT_AUTH_HOST` selects the host whose Git requests receive the placeholder header. `DETECTOR_EGRESS_POLICY` is the policy file the CLI submits for each actor. Keep `DETECTOR_GIT_AUTH_HOST` equal to the hostname in that policy. For private repositories on GitHub.com, use `GITHUB_TOKEN` for controller API access and set `DETECTOR_GIT_AUTH_HOST=github.com` with an egress policy for `github.com`.
+
+This guide covers Git transport credentials. Authenticated Python package-index access (for example, a private Artifactory requiring a token) is not yet brokered by the detector. See [Python support](python-support.md) before enabling Python checks against a private package index.
 
 The Kubernetes Secret provider returns the same configured token to each actor that is authorized to resolve it. Scope that token to the set of repositories the run may access; the current host-level egress policy does not enforce Git repository paths. For large or changing private consumer sets, use a credential broker that mints a short-lived GitHub App token for the specific repositories selected for that run. The CLI's default budget is five jobs, configurable with `DETECTOR_MAX_JOBS` up to 32.
 
