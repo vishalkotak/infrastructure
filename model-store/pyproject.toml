@@ -10,7 +10,7 @@ ms = "modelstore.cli:main"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
-fastapi = "0.115.6"
+fastapi = "^0.162.5"
 uvicorn = { version = "0.34.0", extras = ["standard"] }
 pydantic = "2.10.4"
 temporalio = "1.9.0"
@@ -38,6 +38,9 @@ torch = "2.13.0"
 pytest = "9.0.3"
 jsonschema = "4.26.0"
 pyyaml = "6.0.3"
+
+[tool.poetry.group.security.dependencies]
+starlette = ">=1.3.1"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
