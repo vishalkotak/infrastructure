@@ -99,9 +99,17 @@ fn run_revision(
         "patch.\"{}\".{}.path=\"{}\"",
         source, c.crate_name, patch_path
     );
+    let mut cargo_args = vec!["test".to_owned()];
+    if !env::var("DETECTOR_CARGO_OFFLINE")
+        .map(|value| value.eq_ignore_ascii_case("false"))
+        .unwrap_or(false)
+    {
+        cargo_args.push("--offline".into());
+    }
+    cargo_args.extend(["--config".into(), patch]);
     let output = Command::new("cargo")
         .current_dir(&downstream)
-        .args(["test", "--offline", "--config", &patch])
+        .args(cargo_args)
         .env("CARGO_TARGET_DIR", dir.join("target"))
         .output()?;
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -145,15 +153,31 @@ fn checkout(
         )
         .into());
     }
-    let resolved = Command::new("git")
-        .current_dir(destination)
-        .args([
-            "rev-parse",
-            "--verify",
-            "--end-of-options",
-            &format!("{revision}^{{commit}}"),
-        ])
-        .output()?;
+    if revision.is_empty() || revision.starts_with('-') || revision.contains(['\n', '\r']) {
+        return Err("invalid Git revision".into());
+    }
+    let resolve = |reference: &str| {
+        Command::new("git")
+            .current_dir(destination)
+            .args([
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                &format!("{reference}^{{commit}}"),
+            ])
+            .output()
+    };
+    let mut resolved = resolve(revision)?;
+    if !resolved.status.success() {
+        let fetch = Command::new("git")
+            .current_dir(destination)
+            .args(["fetch", "--quiet", "origin", revision])
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()?;
+        if fetch.status.success() {
+            resolved = resolve("FETCH_HEAD")?;
+        }
+    }
     if !resolved.status.success() {
         return Err(format!(
             "invalid revision {revision}: {}",

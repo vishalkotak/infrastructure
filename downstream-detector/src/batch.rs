@@ -126,6 +126,10 @@ fn run_job(c: &Value, job: &Value, run_id: u128, index: usize) -> Result<Value, 
             "wakeupProbe":{"httpGet":{"path":"/readyz","port":8080}}}],
         "snapshotConfig":{"goldenSnapshotConfig":{"mode":"GOLDEN_SNAPSHOT_MODE_DISABLED"}},
         "resources":{"limits":{"cpuMillicores":1000,"memoryBytes":1073741824u64}}});
+    let mut actor_env = Vec::new();
+    if c["cargo_offline"] == false {
+        actor_env.push(json!({"name":"DETECTOR_CARGO_OFFLINE", "value":"false"}));
+    }
     if let Some(source) = c["patch_source"].as_str() {
         template["containers"][0]["args"]
             .as_array_mut()
@@ -143,13 +147,14 @@ fn run_job(c: &Value, job: &Value, run_id: u128, index: usize) -> Result<Value, 
         if c["egress_policy"].as_str().is_none() {
             return Err("git_auth_host requires an egress_policy".into());
         }
-        template["containers"][0]["env"] = json!([
-            {"name":"DETECTOR_GIT_AUTH_HOST", "value":host},
-            {"name":"GIT_SSL_CAINFO", "value":"/run/ate/egress-trust-bundle/trust-bundle.pem"}
-        ]);
+        actor_env.push(json!({"name":"DETECTOR_GIT_AUTH_HOST", "value":host}));
+        actor_env.push(json!({"name":"GIT_SSL_CAINFO", "value":"/run/ate/egress-trust-bundle/trust-bundle.pem"}));
         template["containers"][0]["volumeMounts"] =
             json!([{"name":"system-info","mountPath":"/run/ate/egress-trust-bundle"}]);
         template["volumes"] = json!([{"name":"system-info","systemInfo":{"dataSources":[{"trustBundle":{"names":["egress-mitm.ate.dev","system-roots.ate.dev"],"path":"trust-bundle.pem"}}]}}]);
+    }
+    if !actor_env.is_empty() {
+        template["containers"][0]["env"] = json!(actor_env);
     }
     let path = std::env::temp_dir().join(format!("{name}.json"));
     fs::write(&path, template.to_string()).map_err(|e| e.to_string())?;

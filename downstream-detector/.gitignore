@@ -2,3 +2,4 @@
 /.local/
 /substrate/local-kubeconfig
 /substrate/local-actor-template.yaml
+/.downstream-detector/

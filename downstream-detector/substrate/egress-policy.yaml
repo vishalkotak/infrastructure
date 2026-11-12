@@ -1,9 +1,11 @@
-# Apply to a specific actor only when it needs public Rust metadata or GitHub.
-# Cargo remains offline during comparisons; this does not allow crate downloads.
+# Apply to a specific actor that needs GitHub source and crates.io downloads.
+# The comparison still runs inside the actor's sandbox.
 rules:
   - tlsPassthrough:
       hostnames:
         - crates.io
+        - index.crates.io
+        - static.crates.io
         - github.com
       ports:
         numbers: [443]
