@@ -3,6 +3,7 @@ mod detector;
 mod discovery;
 mod plan;
 mod pr_check;
+mod process;
 mod server;
 
 use detector::{compare, Config};
@@ -18,7 +19,11 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.len() == 2 && args[0] == "batch" {
-        println!("{}", batch::run(&std::fs::read_to_string(&args[1])?)?);
+        let report = batch::run(&std::fs::read_to_string(&args[1])?)?;
+        println!("{report}");
+        if !batch_succeeded(&report) {
+            std::process::exit(2);
+        }
         return Ok(());
     }
     if args.len() == 3 && args[0] == "plan" {
@@ -37,9 +42,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     if args.len() == 2 && args[0] == "check" {
-        let summary = pr_check::check(&args[1])?;
-        println!("{summary}");
-        if summary.contains("ERROR:") || summary.contains("Verdict: POTENTIAL_REGRESSION") {
+        let result = pr_check::check(&args[1])?;
+        println!("{}", result.summary);
+        if !result.succeeded {
             std::process::exit(2);
         }
         return Ok(());
@@ -62,4 +67,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", compare(&config)?);
     }
     Ok(())
+}
+
+fn batch_succeeded(report: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(report) else {
+        return false;
+    };
+    let Some(results) = value["results"].as_array() else {
+        return false;
+    };
+    !results.is_empty()
+        && results.iter().all(|entry| {
+            entry["result"]["status"] == "completed"
+                && entry["result"]["report"]
+                    .as_str()
+                    .and_then(|body| body.lines().find(|line| line.starts_with("Verdict:")))
+                    == Some("Verdict: NO_REGRESSION_DETECTED")
+        })
 }

@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use std::{
     error::Error,
     fs,
-    io::Write,
+    io::{Read, Write},
     net::TcpListener,
     process::{Child, Command, Stdio},
     sync::{
@@ -10,7 +10,7 @@ use std::{
         Mutex,
     },
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 // The controller validates and schedules jobs. Execution details belong to
@@ -46,12 +46,38 @@ pub fn run(input: &str) -> Result<String, Box<dyn Error>> {
     if has_url_userinfo(get("upstream")?) {
         return Err("upstream URLs must not contain credentials".into());
     }
+    let allowed_git_host = config["git_auth_host"].as_str();
+    if let Some(host) = allowed_git_host {
+        if host.is_empty()
+            || !host
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-'))
+        {
+            return Err("git_auth_host must be a valid hostname".into());
+        }
+    }
+    let check_git_host = |url: &str| -> Result<(), Box<dyn Error>> {
+        let host = https_host(url).ok_or("repository URL must use HTTPS and have a host")?;
+        if host != "github.com" && Some(host) != allowed_git_host {
+            return Err(format!("repository host '{host}' is not approved for this run").into());
+        }
+        Ok(())
+    };
+    check_git_host(get("upstream")?)?;
     let max_jobs = config["max_jobs"].as_u64().ok_or("max_jobs is required")? as usize;
+    if max_jobs == 0 || max_jobs > 32 {
+        return Err("max_jobs must be between 1 and 32".into());
+    }
     let parallel = config["max_parallel"]
         .as_u64()
         .ok_or("max_parallel is required")? as usize;
     if parallel == 0 || parallel > 32 {
         return Err("max_parallel must be between 1 and 32".into());
+    }
+    if let Some(candidate_sha) = config["candidate_sha"].as_str() {
+        if candidate_sha.len() != 40 || !candidate_sha.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err("candidate_sha must be a full commit SHA".into());
+        }
     }
     let mut jobs = config["jobs"]
         .as_array()
@@ -69,6 +95,7 @@ pub fn run(input: &str) -> Result<String, Box<dyn Error>> {
         if has_url_userinfo(job["repository"].as_str().unwrap()) {
             return Err("repository URLs must not contain credentials".into());
         }
+        check_git_host(job["repository"].as_str().unwrap())?;
         if job["priority"].as_i64().is_none() {
             return Err("every job needs an integer priority; higher runs first".into());
         }
@@ -110,16 +137,52 @@ fn has_url_userinfo(s: &str) -> bool {
         .is_some_and(|authority| authority.contains('@'))
 }
 
+fn create_run_token() -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut random| random.read_exact(&mut bytes))
+        .map_err(|e| format!("cannot generate actor request token: {e}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn https_host(url: &str) -> Option<&str> {
+    url.strip_prefix("https://")?
+        .split_once('/')
+        .map(|(host, _)| host)
+        .filter(|host| {
+            !host.is_empty()
+                && host
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-'))
+        })
+}
+
 fn kubectl(args: &[&str]) -> Result<String, String> {
-    let output = Command::new("kubectl")
-        .arg("ate")
-        .args(args)
-        .output()
+    let mut command = Command::new("kubectl");
+    command.arg("ate").args(args);
+    let output = crate::process::run_limited(&mut command, Duration::from_secs(60), 1024 * 1024)
         .map_err(|e| e.to_string())?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+        return Err(format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout)
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn kubectl_delete(args: &[&str]) -> Result<(), String> {
+    match kubectl(args) {
+        Ok(_) => Ok(()),
+        Err(error)
+            if error.to_ascii_lowercase().contains("not found")
+                || error.to_ascii_lowercase().contains("does not exist") =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 struct Proxy(Child);
@@ -143,8 +206,13 @@ fn run_job(c: &Value, job: &Value, run_id: u128, index: usize) -> Result<Value, 
         "snapshotConfig":{"goldenSnapshotConfig":{"mode":"GOLDEN_SNAPSHOT_MODE_DISABLED"}},
         "resources":{"limits":{"cpuMillicores":1000,"memoryBytes":1073741824u64}}});
     let mut actor_env = Vec::new();
+    let run_token = create_run_token()?;
+    actor_env.push(json!({"name":"DETECTOR_RUN_TOKEN", "value":run_token.clone()}));
     if c["cargo_offline"] == false {
         actor_env.push(json!({"name":"DETECTOR_CARGO_OFFLINE", "value":"false"}));
+    }
+    if let Some(candidate_sha) = c["candidate_sha"].as_str() {
+        actor_env.push(json!({"name":"DETECTOR_EXPECT_CANDIDATE_SHA", "value":candidate_sha}));
     }
     if let Some(source) = c["patch_source"].as_str() {
         template["containers"][0]["args"]
@@ -173,14 +241,34 @@ fn run_job(c: &Value, job: &Value, run_id: u128, index: usize) -> Result<Value, 
         template["containers"][0]["env"] = json!(actor_env);
     }
     let path = std::env::temp_dir().join(format!("{name}.json"));
-    fs::write(&path, template.to_string()).map_err(|e| e.to_string())?;
+    let mut file_options = fs::OpenOptions::new();
+    file_options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        file_options.mode(0o600);
+    }
+    let mut template_file = file_options.open(&path).map_err(|e| e.to_string())?;
+    if let Err(error) = template_file.write_all(template.to_string().as_bytes()) {
+        drop(template_file);
+        let _ = fs::remove_file(&path);
+        return Err(error.to_string());
+    }
     let path_str = path.to_str().ok_or("invalid temporary path")?;
     let result = kubectl(&["create", "actor-template", "-f", path_str]);
     let _ = fs::remove_file(&path);
-    result?;
-    kubectl(&["create", "actor", &name, "-a", space, "--template", &name])?;
+    if let Err(error) = result {
+        let _ = kubectl_delete(&["delete", "actor-template", &name, "-a", space]);
+        return Err(error);
+    }
+    if let Err(error) = kubectl(&["create", "actor", &name, "-a", space, "--template", &name]) {
+        let _ = kubectl_delete(&["delete", "actor-template", &name, "-a", space]);
+        return Err(error);
+    }
+    let mut egress_attempted = false;
     let result = (|| {
         if let Some(policy) = c["egress_policy"].as_str() {
+            egress_attempted = true;
             kubectl(&["create", "egress-policy", &name, "-a", space, "-f", policy])?;
         }
         kubectl(&["resume", "actor", &name, "-a", space])?;
@@ -196,24 +284,30 @@ fn run_job(c: &Value, job: &Value, run_id: u128, index: usize) -> Result<Value, 
             .map_err(|e| e.to_string())?;
         let _proxy = Proxy(proxy);
         let url = format!("http://127.0.0.1:{port}/run");
-        let output = Command::new("curl")
-            .args([
-                "--fail-with-body",
-                "--silent",
-                "--show-error",
-                "--retry",
-                "20",
-                "--retry-connrefused",
-                "--retry-delay",
-                "1",
-                "--max-time",
-                "300",
-                "-X",
-                "POST",
-                &url,
-            ])
-            .output()
-            .map_err(|e| e.to_string())?;
+        wait_for_actor_ready(&format!("http://127.0.0.1:{port}/readyz"))?;
+        let mut curl = Command::new("curl");
+        curl.args([
+            "--fail-with-body",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "3660",
+            "--max-filesize",
+            "33554432",
+            "--config",
+            "-",
+            "-X",
+            "POST",
+            &url,
+        ]);
+        let config = format!("header = \"Authorization: Bearer {run_token}\"\n");
+        let output = crate::process::run_with_stdin(
+            &mut curl,
+            config.as_bytes(),
+            Duration::from_secs(3660),
+            32 * 1024 * 1024,
+        )
+        .map_err(|e| e.to_string())?;
         if !output.status.success() {
             return Err(format!(
                 "actor request failed: {} {}",
@@ -225,11 +319,53 @@ fn run_job(c: &Value, job: &Value, run_id: u128, index: usize) -> Result<Value, 
             json!({"status":"completed","actor":name,"report":String::from_utf8_lossy(&output.stdout)}),
         )
     })();
-    let suspended = kubectl(&["suspend", "actor", &name, "-a", space, "--mode=sync"]);
-    match (result, suspended) {
-        (Ok(v), Ok(_)) => Ok(v),
-        (Ok(_), Err(e)) => Err(format!("comparison completed but suspend failed: {e}")),
-        (Err(e), _) => Err(e),
+    let mut cleanup_errors = Vec::new();
+    if let Err(error) = kubectl(&["suspend", "actor", &name, "-a", space, "--mode=sync"]) {
+        cleanup_errors.push(format!("suspend: {error}"));
+    }
+    if egress_attempted {
+        if let Err(error) = kubectl_delete(&["delete", "egress-policy", &name, "-a", space]) {
+            cleanup_errors.push(format!("delete egress policy: {error}"));
+        }
+    }
+    if let Err(error) = kubectl_delete(&["delete", "actor", &name, "-a", space]) {
+        cleanup_errors.push(format!("delete actor: {error}"));
+    }
+    if let Err(error) = kubectl_delete(&["delete", "actor-template", &name, "-a", space]) {
+        cleanup_errors.push(format!("delete actor template: {error}"));
+    }
+    match (result, cleanup_errors.is_empty()) {
+        (Ok(value), true) => Ok(value),
+        (Ok(_), false) => Err(format!(
+            "comparison completed but cleanup failed: {}",
+            cleanup_errors.join("; ")
+        )),
+        (Err(error), true) => Err(error),
+        (Err(error), false) => Err(format!(
+            "{error}; cleanup also failed: {}",
+            cleanup_errors.join("; ")
+        )),
+    }
+}
+
+fn wait_for_actor_ready(url: &str) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let mut request = Command::new("curl");
+        request.args(["--fail", "--silent", "--show-error", "--max-time", "2", url]);
+        if let Ok(response) =
+            crate::process::run_limited(&mut request, Duration::from_secs(3), 1024)
+        {
+            if response.status.success() {
+                return Ok(());
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(
+                "actor readiness endpoint did not become available within 60 seconds".into(),
+            );
+        }
+        thread::sleep(Duration::from_secs(1));
     }
 }
 
@@ -240,34 +376,49 @@ fn run_command_executor(c: &Value, job: &Value) -> Result<Value, String> {
     let command = c["executor"]["command"]
         .as_str()
         .ok_or("executor.command is required")?;
+    if !std::path::Path::new(command).is_absolute() {
+        return Err("executor.command must be an absolute path".into());
+    }
     let request = json!({
         "protocol_version": 1,
         "operation": "compatibility_check",
         "upstream": c["upstream"],
         "baseline": c["baseline"],
         "candidate": c["candidate"],
+        "candidate_sha": c["candidate_sha"],
         "crate_name": c["crate_name"],
         "downstream": job["repository"],
         "downstream_ref": job["revision"],
+        "git_auth_host": c["git_auth_host"],
         "patch_source": c["patch_source"],
         "cargo_offline": c["cargo_offline"],
         "resources": {"cpu_millicores": 1000, "memory_bytes": 1073741824u64},
     });
-    let mut child = Command::new(command)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("cannot start executor command {command}: {e}"))?;
-    child
-        .stdin
-        .take()
-        .ok_or("executor stdin unavailable")?
-        .write_all(request.to_string().as_bytes())
-        .map_err(|e| format!("cannot send request to executor: {e}"))?;
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("cannot collect executor result: {e}"))?;
+    let timeout = Duration::from_secs(
+        std::env::var("DETECTOR_EXECUTOR_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "660".into())
+            .parse::<u64>()
+            .map_err(|e| format!("invalid DETECTOR_EXECUTOR_TIMEOUT_SECS: {e}"))?,
+    );
+    if timeout.is_zero() || timeout > Duration::from_secs(3660) {
+        return Err("DETECTOR_EXECUTOR_TIMEOUT_SECS must be between 1 and 3660".into());
+    }
+    let mut command = Command::new(command);
+    command
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_TOKEN")
+        .env_remove("DETECTOR_GHES_TOKEN")
+        .env_remove("DETECTOR_RUN_TOKEN");
+    let output = crate::process::run_with_stdin(
+        &mut command,
+        request.to_string().as_bytes(),
+        timeout,
+        16 * 1024 * 1024,
+    )
+    .map_err(|e| format!("cannot collect executor result: {e}"))?;
+    if String::from_utf8_lossy(&output.stderr).contains("[output truncated") {
+        return Err("executor stderr exceeded the 16 MiB output cap".into());
+    }
     if !output.status.success() {
         return Err(format!(
             "executor command failed ({}): {}",

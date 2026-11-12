@@ -137,6 +137,7 @@ fn catches_a_real_downstream_regression() {
         ])
         .env("DETECTOR_LISTEN", address.to_string())
         .env("DETECTOR_REPORT_PATH", root.join("report.txt"))
+        .env("DETECTOR_RUN_TOKEN", "a".repeat(64))
         .spawn()
         .unwrap();
     let result = || {
@@ -155,11 +156,11 @@ fn catches_a_real_downstream_regression() {
         assert!(ready, "actor did not become ready");
         let response = request(
             address,
-            "POST /run HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n",
+            "POST /run HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nContent-Length: 0\r\n\r\n",
         )
         .unwrap();
         assert!(response.contains("POTENTIAL_REGRESSION"), "{response}");
-        let report = request(address, "GET /report HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+        let report = request(address, "GET /report HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n\r\n").unwrap();
         assert!(report.contains("POTENTIAL_REGRESSION"), "{report}");
     };
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(result));

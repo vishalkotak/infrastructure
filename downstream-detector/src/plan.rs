@@ -1,9 +1,35 @@
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, error::Error};
 
+pub struct RankedPlan {
+    pub eligible_repositories: usize,
+    pub records_without_https_repository: usize,
+    pub repositories: Vec<(String, u64, Vec<String>)>,
+}
+
 // Deduplicate registry entries by repository, but preserve the crates covered by
 // each repository. Download counts are registry signals, not business impact.
 pub fn make_plan(input: &str, limit: usize) -> Result<String, Box<dyn Error>> {
+    let plan = rank(input)?;
+    let selected: Vec<_> = plan
+        .repositories
+        .iter()
+        .take(limit)
+        .enumerate()
+        .map(|(i, (repository, downloads, crates))| {
+            json!({
+                "rank": i + 1, "repository": repository, "downloads": downloads,
+                "crates": crates, "revision": null,
+                "note": "Confirm an immutable revision and repository permission before testing."
+            })
+        })
+        .collect();
+    Ok(serde_json::to_string_pretty(
+        &json!({"upstream": serde_json::from_str::<Value>(input)?["upstream"], "limit": limit, "eligible_repositories": plan.eligible_repositories, "records_without_https_repository": plan.records_without_https_repository, "selected": selected}),
+    )?)
+}
+
+pub fn rank(input: &str) -> Result<RankedPlan, Box<dyn Error>> {
     let input: Value = serde_json::from_str(input)?;
     let deps = input["dependents"]
         .as_array()
@@ -32,21 +58,14 @@ pub fn make_plan(input: &str, limit: usize) -> Result<String, Box<dyn Error>> {
     let mut rows: Vec<_> = repos.into_iter().collect();
     rows.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(&b.0)));
     let count = rows.len();
-    let selected: Vec<_> = rows
-        .into_iter()
-        .take(limit)
-        .enumerate()
-        .map(|(i, (repository, (downloads, crates)))| {
-            json!({
-                "rank": i + 1, "repository": repository, "downloads": downloads,
-                "crates": crates, "revision": null,
-                "note": "Confirm an immutable revision and repository permission before testing."
-            })
-        })
-        .collect();
-    Ok(serde_json::to_string_pretty(
-        &json!({"upstream": input["upstream"], "limit": limit, "eligible_repositories": count, "records_without_https_repository": skipped, "selected": selected}),
-    )?)
+    Ok(RankedPlan {
+        eligible_repositories: count,
+        records_without_https_repository: skipped,
+        repositories: rows
+            .into_iter()
+            .map(|(repository, (downloads, crates))| (repository, downloads, crates))
+            .collect(),
+    })
 }
 
 #[cfg(test)]

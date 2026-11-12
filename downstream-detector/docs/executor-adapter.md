@@ -30,16 +30,18 @@ The protocol is versioned and currently sends:
   "upstream": "https://github.com/OWNER/CRATE/.git",
   "baseline": "base-commit-sha",
   "candidate": "refs/pull/123/head",
+  "candidate_sha": "full-40-character-candidate-commit-sha",
   "crate_name": "crate-name",
   "downstream": "https://github.com/CONSUMER/APP.git",
   "downstream_ref": "consumer-commit-sha",
+  "git_auth_host": null,
   "patch_source": null,
   "cargo_offline": false,
   "resources": {"cpu_millicores": 1000, "memory_bytes": 1073741824}
 }
 ```
 
-The adapter should run the existing detector comparison for the request in a fresh, isolated environment, for example by invoking its `compare` command with the upstream, baseline, candidate, crate name, downstream, and downstream revision fields. It should apply the requested resource limits and its own network and secret policies. Do not make repository code or Cargo build scripts share the controller's credentials or control-plane access.
+The adapter should run the existing detector comparison for the request in a fresh, isolated environment, for example by invoking its `compare` command with the upstream, baseline, candidate, crate name, downstream, and downstream revision fields. `candidate_sha` pins the moving PR ref: reject the run if fetching `candidate` resolves to a different commit. `git_auth_host` is present only when the run needs authenticated access to that host. Apply the requested resource limits and the adapter's own network and secret policies. Do not make repository code or Cargo build scripts share controller credentials or control-plane access.
 
 ## Response
 
@@ -51,4 +53,4 @@ On completion, write a single JSON object to standard output:
 
 The `report` string is stored with the PR report and used to produce the CLI summary. For an execution failure, exit nonzero and write diagnostics to standard error. Invalid JSON, a nonzero exit, or a response without `status: completed` and a string `report` is recorded as an executor error.
 
-The adapter command is trusted infrastructure code: it runs on the controller and inherits its environment. Keep untrusted dependency code inside the isolated environment the adapter creates. The payload contains no GitHub token or other secret; the adapter should obtain any needed credentials from its own secret manager and expose only narrowly scoped credentials to the job.
+The adapter command is trusted infrastructure code: it runs on the controller and inherits its environment, apart from `GITHUB_TOKEN`, `GH_TOKEN`, `DETECTOR_GHES_TOKEN`, and the per-actor run token, which the detector removes. Keep untrusted dependency code inside the isolated environment the adapter creates. The payload contains no GitHub token or other secret; the adapter should obtain any needed credentials from its own secret manager and expose only short-lived, narrowly scoped credentials to the job. Adapter output and execution time are capped; treat a cap or timeout as a failed check.

@@ -16,6 +16,9 @@ RUN git -C /opt/demo/upstream init -q && \
     git -C /opt/demo/downstream init -q && \
     git -C /opt/demo/downstream add . && \
     git -C /opt/demo/downstream -c user.name=Demo -c user.email=demo@example.com commit -qm downstream
+RUN groupadd --system --gid 10001 detector && \
+    useradd --system --uid 10001 --gid detector --home-dir /home/detector --create-home detector
+USER 10001:10001
 EXPOSE 8080
 ENTRYPOINT ["/app/target/release/downstream-detector"]
 CMD ["serve", "/opt/demo/upstream", "baseline", "HEAD", "example-math", "/opt/demo/downstream", "HEAD"]

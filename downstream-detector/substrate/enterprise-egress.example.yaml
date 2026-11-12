@@ -1,5 +1,6 @@
 # Replace the hostname and credential URI after configuring the credential provider.
-# The secret must be a short-lived token scoped to the repositories for this job.
+# The secret must be a short-lived, read-only token scoped only to the upstream
+# crate and selected downstream repository for this actor.
 # HTTPS interception requires the actor's Substrate trust-bundle mount.
 rules:
   - https:

@@ -44,6 +44,12 @@ pub fn discover(crate_name: &str, user_agent: &str) -> Result<String, Box<dyn Er
     if user_agent.trim().is_empty() || user_agent.contains(['\r', '\n']) {
         return Err("invalid crates.io user agent".into());
     }
+    let max_records = std::env::var("DETECTOR_MAX_DISCOVERY_RECORDS")
+        .unwrap_or_else(|_| "100000".into())
+        .parse::<u64>()?;
+    if max_records == 0 || max_records > 100_000 {
+        return Err("DETECTOR_MAX_DISCOVERY_RECORDS must be between 1 and 100000".into());
+    }
     let mut all = Vec::new();
     let mut page = 1u64;
     loop {
@@ -60,6 +66,8 @@ pub fn discover(crate_name: &str, user_agent: &str) -> Result<String, Box<dyn Er
                 "=https",
                 "--max-time",
                 "45",
+                "--max-filesize",
+                "4194304",
                 "--user-agent",
                 user_agent,
                 &url,
@@ -73,6 +81,11 @@ pub fn discover(crate_name: &str, user_agent: &str) -> Result<String, Box<dyn Er
             .into());
         }
         let (total, results) = parse_page(std::str::from_utf8(&response.stdout)?)?;
+        if total > max_records {
+            return Err(format!(
+                "crates.io reports {total} reverse dependency records, above the configured discovery cap of {max_records}; refusing a partial consumer scan"
+            ).into());
+        }
         if results.is_empty() {
             if (all.len() as u64) < total {
                 return Err(format!(

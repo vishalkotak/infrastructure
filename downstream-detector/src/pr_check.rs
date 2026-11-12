@@ -1,11 +1,5 @@
 use serde_json::{json, Value};
-use std::{
-    collections::BTreeMap,
-    env,
-    error::Error,
-    io::Write,
-    process::{Command, Stdio},
-};
+use std::{collections::BTreeMap, env, error::Error, io::Write, process::Command};
 
 struct PullRequest {
     host: String,
@@ -23,8 +17,21 @@ struct Dependent {
     downloads: u64,
 }
 
-pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
+type CompanyDiscovery = (Vec<Dependent>, Vec<Value>, usize);
+
+pub struct CheckResult {
+    pub summary: String,
+    pub succeeded: bool,
+}
+
+pub fn check(pr_url: &str) -> Result<CheckResult, Box<dyn Error>> {
     let (host, owner, repo, number) = parse_pr_url(pr_url)?;
+    let approved_enterprise_host = env::var("DETECTOR_GITHUB_HOST").ok();
+    if !approved_github_host(&host, approved_enterprise_host.as_deref()) {
+        return Err(format!(
+            "untrusted GitHub host '{host}'; set DETECTOR_GITHUB_HOST to the approved GitHub Enterprise host"
+        ).into());
+    }
     let api = api_root(&host);
     let pr_body = get(&format!("{api}/repos/{owner}/{repo}/pulls/{number}"))?;
     let pr_json: Value = serde_json::from_str(&pr_body)?;
@@ -38,45 +45,74 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
     };
 
     let crate_name = changed_crate(&pr, &api)?;
+    if crate_name.is_empty()
+        || !crate_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("changed Cargo package has an invalid crate name".into());
+    }
     let user_agent = env::var("CRATES_IO_USER_AGENT").map_err(|_| {
         "set CRATES_IO_USER_AGENT once with an identifying name and contact before using check"
     })?;
-    let discovery: Value = match crate::discovery::discover(&crate_name, &user_agent) {
-        Ok(body) => serde_json::from_str(&body)?,
-        Err(error) if env::var("DETECTOR_GITHUB_ORG").is_ok() => {
-            eprintln!("crates.io discovery unavailable ({error}); checking configured company repositories");
-            json!({"upstream":crate_name,"dependents":[]})
-        }
-        Err(error) => return Err(error),
-    };
+    let (discovery, public_discovery_issue): (Value, Option<String>) =
+        match crate::discovery::discover(&crate_name, &user_agent) {
+            Ok(body) => (serde_json::from_str(&body)?, None),
+            Err(error)
+                if env::var("DETECTOR_GITHUB_ORG").is_ok() && error.to_string().contains("404") =>
+            {
+                (json!({"upstream":crate_name,"dependents":[]}), None)
+            }
+            Err(error) if env::var("DETECTOR_GITHUB_ORG").is_ok() => {
+                eprintln!("crates.io discovery incomplete ({error}); checking configured company repositories but marking coverage incomplete");
+                (
+                    json!({"upstream":crate_name,"dependents":[]}),
+                    Some(error.to_string()),
+                )
+            }
+            Err(error) => return Err(error),
+        };
     let max_jobs = env::var("DETECTOR_MAX_JOBS")
         .unwrap_or_else(|_| "5".into())
         .parse::<usize>()?;
     if max_jobs == 0 || max_jobs > 32 {
         return Err("DETECTOR_MAX_JOBS must be between 1 and 32".into());
     }
-    let plan: Value =
-        serde_json::from_str(&crate::plan::make_plan(&discovery.to_string(), max_jobs)?)?;
+    let plan = crate::plan::rank(&discovery.to_string())?;
+    let lookup_budget = env::var("DETECTOR_MAX_REPOSITORY_LOOKUPS")
+        .unwrap_or_else(|_| "50".into())
+        .parse::<usize>()?;
+    if lookup_budget == 0 || lookup_budget > 1000 {
+        return Err("DETECTOR_MAX_REPOSITORY_LOOKUPS must be between 1 and 1000".into());
+    }
     let mut dependents = Vec::new();
-    let (company_repositories, mut skipped) = discover_company_repositories(&crate_name, max_jobs)?;
+    let company_budget = if plan.repositories.is_empty() {
+        lookup_budget
+    } else {
+        lookup_budget.saturating_sub(max_jobs).max(1)
+    };
+    let (company_repositories, mut skipped, company_lookups) =
+        discover_company_repositories(&crate_name, max_jobs, company_budget)?;
     for dep in company_repositories {
         dependents.push(dep);
         if dependents.len() >= max_jobs {
             break;
         }
     }
-    for item in plan["selected"]
-        .as_array()
-        .ok_or("missing selected dependents")?
-    {
-        if dependents.len() >= max_jobs {
+    if let Some(issue) = &public_discovery_issue {
+        skipped.push(json!({"source":"crates.io", "reason":issue}));
+    }
+    let mut lookups = company_lookups;
+    for (repository, downloads, _) in &plan.repositories {
+        if dependents.len() >= max_jobs || lookups >= lookup_budget {
             break;
         }
-        let Some(repository) = item["repository"].as_str() else {
+        let clone_url = format!("{repository}.git");
+        if dependents.iter().any(|dep| dep.clone_url == clone_url) {
             continue;
-        };
-        let downloads = item["downloads"].as_u64().unwrap_or(0);
-        match latest_revision(repository, downloads, "github.com") {
+        }
+        lookups += 1;
+        match latest_revision(repository, *downloads, "github.com") {
             Ok(dep) => dependents.push(dep),
             Err(e) => skipped.push(json!({"repository":repository,"reason":e.to_string()})),
         }
@@ -98,16 +134,20 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
         })
         .collect();
     if env::var("DETECTOR_DRY_RUN").is_ok_and(|value| value == "true") {
-        return Ok(serde_json::to_string_pretty(&json!({
+        return Ok(CheckResult {
+            summary: serde_json::to_string_pretty(&json!({
             "pull_request":pr_url,
             "crate":crate_name,
             "baseline":pr.base_sha,
             "candidate":pr.head_sha,
-            "discovered_repositories":plan["eligible_repositories"],
+            "discovered_repositories":plan.eligible_repositories,
             "selected_repositories":dependents.len(),
             "skipped_repositories":skipped,
+            "coverage_complete":public_discovery_issue.is_none(),
             "planned_jobs":planned_jobs,
-        }))?);
+            }))?,
+            succeeded: false,
+        });
     }
 
     let executor = env::var("DETECTOR_EXECUTOR").unwrap_or_else(|_| "substrate".into());
@@ -121,6 +161,7 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
         "upstream":format!("https://{}/{}/{}/.git",pr.host,pr.owner,pr.repo),
         "baseline":pr.base_sha,
         "candidate":format!("refs/pull/{}/head",pr.number),
+        "candidate_sha":pr.head_sha,
         "crate_name":crate_name,
         "max_jobs":max_jobs,
         "max_parallel":parallel,
@@ -139,8 +180,29 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
             config["image"] = json!(image);
             config["atespace"] =
                 json!(env::var("DETECTOR_ATESPACE").unwrap_or_else(|_| "compatibility".into()));
-            config["egress_policy"] = json!(env::var("DETECTOR_EGRESS_POLICY")
-                .unwrap_or_else(|_| "substrate/egress-policy.yaml".into()));
+            let auth_host = env::var("DETECTOR_GIT_AUTH_HOST")
+                .ok()
+                .or_else(|| {
+                    env::var("DETECTOR_GITHUB_HOST")
+                        .ok()
+                        .filter(|host| host != "github.com")
+                })
+                .or_else(|| (pr.host != "github.com").then(|| pr.host.clone()));
+            if let Some(auth_host) = auth_host {
+                let policy = env::var("DETECTOR_EGRESS_POLICY").map_err(|_| {
+                    "authenticated Git access requires DETECTOR_EGRESS_POLICY with a host-scoped HTTPS credential rule"
+                })?;
+                config["git_auth_host"] = json!(auth_host);
+                config["egress_policy"] = json!(policy);
+            } else {
+                config["egress_policy"] = json!(env::var("DETECTOR_EGRESS_POLICY")
+                    .unwrap_or_else(|_| "substrate/egress-policy.yaml".into()));
+            }
+        }
+        "command" => {
+            let command = env::var("DETECTOR_EXECUTOR_COMMAND")
+                .map_err(|_| "set DETECTOR_EXECUTOR_COMMAND to your trusted executor adapter")?;
+            config["executor"] = json!({"type":"command","command":command});
             if let Ok(auth_host) = env::var("DETECTOR_GIT_AUTH_HOST") {
                 config["git_auth_host"] = json!(auth_host);
             } else if let Ok(company_host) = env::var("DETECTOR_GITHUB_HOST") {
@@ -148,11 +210,6 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
             } else if pr.host != "github.com" {
                 config["git_auth_host"] = json!(pr.host);
             }
-        }
-        "command" => {
-            let command = env::var("DETECTOR_EXECUTOR_COMMAND")
-                .map_err(|_| "set DETECTOR_EXECUTOR_COMMAND to your trusted executor adapter")?;
-            config["executor"] = json!({"type":"command","command":command});
         }
         _ => return Err("DETECTOR_EXECUTOR must be 'substrate' or 'command'".into()),
     }
@@ -162,17 +219,27 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
         "crate":crate_name,
         "baseline":pr.base_sha,
         "candidate":pr.head_sha,
-        "discovered_repositories":plan["eligible_repositories"],
+        "discovered_repositories":plan.eligible_repositories,
         "selected_repositories":dependents.len(),
         "skipped_repositories":skipped,
+        "coverage_complete":public_discovery_issue.is_none(),
         "results":results,
     });
     let report_dir =
         env::var("DETECTOR_REPORT_DIR").unwrap_or_else(|_| ".downstream-detector/reports".into());
     std::fs::create_dir_all(&report_dir)?;
-    let report_path = std::path::Path::new(&report_dir)
-        .join(format!("{}-{}-pr-{}.json", pr.owner, pr.repo, pr.number));
-    std::fs::write(&report_path, serde_json::to_vec_pretty(&full_report)?)?;
+    let run_stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let report_path = std::path::Path::new(&report_dir).join(format!(
+        "{}-{}-pr-{}-{}-{}.json",
+        pr.owner,
+        pr.repo,
+        pr.number,
+        &pr.head_sha[..12],
+        run_stamp
+    ));
+    write_private_report(&report_path, &serde_json::to_vec_pretty(&full_report)?)?;
 
     let runs = full_report["results"]["results"]
         .as_array()
@@ -182,16 +249,27 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
         "PR check: {pr_url}\nCrate: {crate_name}\nDownstream repositories tested: {}\n",
         runs.len()
     );
+    let mut succeeded = public_discovery_issue.is_none();
+    if let Some(issue) = public_discovery_issue {
+        summary.push_str(&format!(
+            "Coverage incomplete: crates.io discovery failed: {issue}\n"
+        ));
+    }
     for run in runs {
         let repository = run["repository"].as_str().unwrap_or("unknown repository");
         let result = &run["result"];
         let outcome = if result["status"] == "completed" {
-            result["report"]
+            let verdict = result["report"]
                 .as_str()
                 .and_then(|report| report.lines().find(|line| line.starts_with("Verdict:")))
-                .unwrap_or("Completed; see full log")
-                .to_owned()
+                .unwrap_or("Verdict: MISSING_OR_INVALID")
+                .to_owned();
+            if verdict != "Verdict: NO_REGRESSION_DETECTED" {
+                succeeded = false;
+            }
+            verdict
         } else {
+            succeeded = false;
             format!(
                 "ERROR: {}",
                 result["error"].as_str().unwrap_or("unknown error")
@@ -200,7 +278,33 @@ pub fn check(pr_url: &str) -> Result<String, Box<dyn Error>> {
         summary.push_str(&format!("  {repository}: {outcome}\n"));
     }
     summary.push_str(&format!("Full logs: {}", report_path.display()));
-    Ok(summary)
+    Ok(CheckResult { summary, succeeded })
+}
+
+fn write_private_report(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(contents)
+}
+
+fn approved_github_host(host: &str, enterprise_host: Option<&str>) -> bool {
+    host == "github.com" || enterprise_host == Some(host)
+}
+
+fn token_env_for_api_host(api_host: &str, enterprise_host: Option<&str>) -> Option<&'static str> {
+    if api_host == "api.github.com" {
+        Some("GITHUB_TOKEN")
+    } else if enterprise_host == Some(api_host) {
+        Some("DETECTOR_GHES_TOKEN")
+    } else {
+        None
+    }
 }
 
 fn parse_pr_url(input: &str) -> Result<(String, String, String, u64), Box<dyn Error>> {
@@ -265,13 +369,12 @@ fn get_accept(url: &str, accept: &str) -> Result<String, Box<dyn Error>> {
         "--fail",
         "--silent",
         "--show-error",
-        "--location",
         "--proto",
-        "=https",
-        "--proto-redir",
         "=https",
         "--max-time",
         "60",
+        "--max-filesize",
+        "33554432",
         "--retry",
         "2",
         "--retry-connrefused",
@@ -281,29 +384,39 @@ fn get_accept(url: &str, accept: &str) -> Result<String, Box<dyn Error>> {
         &format!("Accept: {accept}"),
     ]);
     command.arg(url);
-    let token = env::var("GITHUB_TOKEN").or_else(|_| env::var("GH_TOKEN"));
-    let output = if let Ok(token) = token {
+    let api_host = url
+        .strip_prefix("https://")
+        .and_then(|rest| rest.split_once('/').map(|(host, _)| host))
+        .ok_or("GitHub API URL must use HTTPS")?;
+    let token =
+        match token_env_for_api_host(api_host, env::var("DETECTOR_GITHUB_HOST").ok().as_deref()) {
+            Some("GITHUB_TOKEN") => env::var("GITHUB_TOKEN")
+                .or_else(|_| env::var("GH_TOKEN"))
+                .ok(),
+            Some("DETECTOR_GHES_TOKEN") => env::var("DETECTOR_GHES_TOKEN").ok(),
+            _ => None,
+        };
+    let output = if let Some(token) = token.filter(|token| !token.is_empty()) {
         if token.trim().is_empty()
             || !token
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
         {
-            return Err("GITHUB_TOKEN or GH_TOKEN contains invalid characters".into());
+            return Err("configured GitHub token contains invalid characters".into());
         }
-        command
-            .args(["--config", "-"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let mut child = command.spawn()?;
-        child
-            .stdin
-            .take()
-            .ok_or("could not open curl stdin")?
-            .write_all(format!("header = \"Authorization: Bearer {token}\"\n").as_bytes())?;
-        child.wait_with_output()?
+        command.args(["--config", "-"]);
+        crate::process::run_with_stdin(
+            &mut command,
+            format!("header = \"Authorization: Bearer {token}\"\n").as_bytes(),
+            std::time::Duration::from_secs(60),
+            32 * 1024 * 1024,
+        )?
     } else {
-        command.output()?
+        crate::process::run_limited(
+            &mut command,
+            std::time::Duration::from_secs(60),
+            32 * 1024 * 1024,
+        )?
     };
     if !output.status.success() {
         return Err(format!(
@@ -404,8 +517,13 @@ fn changed_crate(pr: &PullRequest, api: &str) -> Result<String, Box<dyn Error>> 
         .into());
     }
     let manifest_path = package_manifests.keys().next().unwrap();
+    let encoded_manifest_path = manifest_path
+        .split('/')
+        .map(url_encode)
+        .collect::<Vec<_>>()
+        .join("/");
     let body = get_raw(&format!(
-        "{api}/repos/{}/{}/contents/{manifest_path}?ref={}",
+        "{api}/repos/{}/{}/contents/{encoded_manifest_path}?ref={}",
         pr.owner, pr.repo, pr.head_sha
     ))?;
     let crate_name =
@@ -489,9 +607,10 @@ fn github_repo(repository: &str, expected_host: &str) -> Result<(String, String)
 fn discover_company_repositories(
     crate_name: &str,
     limit: usize,
-) -> Result<(Vec<Dependent>, Vec<Value>), Box<dyn Error>> {
+    lookup_budget: usize,
+) -> Result<CompanyDiscovery, Box<dyn Error>> {
     let Ok(org) = env::var("DETECTOR_GITHUB_ORG") else {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok((Vec::new(), Vec::new(), 0));
     };
     if org.is_empty()
         || !org
@@ -521,9 +640,18 @@ fn discover_company_repositories(
             "{api}/search/code?q={crate_name}+filename%3ACargo.toml+org%3A{org}&per_page=100&page={page}"
         );
         let response: Value = serde_json::from_str(&get(&url)?)?;
+        if response["total_count"]
+            .as_u64()
+            .is_some_and(|count| count > 1000)
+        {
+            return Err("GitHub code search exceeds its 1,000-result cap; refusing an incomplete company scan".into());
+        }
         let items = response["items"]
             .as_array()
             .ok_or("GitHub code search response is missing items")?;
+        if page == 10 && items.len() == 100 {
+            return Err("GitHub code search reached its 1,000-result page cap; refusing an incomplete company scan".into());
+        }
         for item in items {
             if let Some(full_name) = item["repository"]["full_name"].as_str() {
                 let priority = priorities.get(full_name).copied().unwrap_or(0);
@@ -541,13 +669,18 @@ fn discover_company_repositories(
     selected.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     let mut ready = Vec::new();
     let mut skipped = Vec::new();
-    for (repository, priority) in selected.into_iter().take(limit) {
+    let mut attempts = 0;
+    for (repository, priority) in selected {
+        if ready.len() >= limit || attempts >= lookup_budget {
+            break;
+        }
+        attempts += 1;
         match latest_revision(&format!("https://{host}/{repository}"), priority, &host) {
             Ok(dep) => ready.push(dep),
             Err(e) => skipped.push(json!({"repository":repository,"reason":e.to_string()})),
         }
     }
-    Ok((ready, skipped))
+    Ok((ready, skipped, attempts))
 }
 
 fn url_encode(value: &str) -> String {
@@ -564,7 +697,10 @@ fn url_encode(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{api_root, github_repo, parse_package_name, parse_pr_url};
+    use super::{
+        api_root, approved_github_host, github_repo, parse_package_name, parse_pr_url,
+        token_env_for_api_host,
+    };
 
     #[test]
     fn parses_public_and_enterprise_pr_urls() {
@@ -583,6 +719,27 @@ mod tests {
             "https://git.example.com/api/v3"
         );
         assert!(parse_pr_url("http://github.com/acme/lib/pull/42").is_err());
+        assert!(approved_github_host("github.com", None));
+        assert!(approved_github_host(
+            "git.example.com",
+            Some("git.example.com")
+        ));
+        assert!(!approved_github_host(
+            "evil.example",
+            Some("git.example.com")
+        ));
+        assert_eq!(
+            token_env_for_api_host("api.github.com", Some("git.example.com")),
+            Some("GITHUB_TOKEN")
+        );
+        assert_eq!(
+            token_env_for_api_host("git.example.com", Some("git.example.com")),
+            Some("DETECTOR_GHES_TOKEN")
+        );
+        assert_eq!(
+            token_env_for_api_host("evil.example", Some("git.example.com")),
+            None
+        );
     }
 
     #[test]
