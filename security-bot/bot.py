@@ -25,6 +25,10 @@ class Blocked(RuntimeError):
     pass
 
 
+class PendingCI(Blocked):
+    pass
+
+
 class GitHub:
     def __init__(self, token):
         self.token = token
@@ -159,10 +163,24 @@ def check_ci(api, full_name, sha):
     latest = {}
     for status in statuses:
         latest.setdefault(status["context"], status["state"])
-    if any(c["status"] != "completed" or c["conclusion"] != "success" for c in checks):
-        raise Blocked("Existing CI has pending, failed, skipped, or neutral checks")
-    if any(state != "success" for state in latest.values()):
-        raise Blocked("Existing commit statuses have not all succeeded")
+    if any(c["status"] == "completed" and c["conclusion"] != "success" for c in checks):
+        raise Blocked("Existing CI has failed, skipped, or neutral checks")
+    if any(state in ("failure", "error") for state in latest.values()):
+        raise Blocked("Existing commit statuses have failed")
+    if any(c["status"] != "completed" for c in checks) or any(state != "success" for state in latest.values()):
+        raise PendingCI("Existing CI is still pending")
+
+
+def wait_for_ci(api, full_name, sha, timeout=300):
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return check_ci(api, full_name, sha)
+        except PendingCI:
+            if time.monotonic() >= deadline:
+                raise PendingCI("Published commit CI is still pending after the wait budget")
+            print(f"Waiting for published commit CI: {full_name}", flush=True)
+            time.sleep(10)
 
 
 def projects(root, changed):
@@ -234,7 +252,11 @@ if node -e 'process.exit(require("./package.json").scripts?.test ? 0 : 1)'; then
         "python": r'''set -eu
 verify_python() {
   "$@" -m pip check
-  "$@" -m pip_audit
+  if [ -n "${SECURITY_LOCK_REQUIREMENTS:-}" ]; then
+    "$@" -m pip_audit -r "$SECURITY_LOCK_REQUIREMENTS" --no-deps --disable-pip
+  else
+    "$@" -m pip_audit
+  fi
   if "$@" -m pytest; then
     return 0
   else
@@ -250,6 +272,8 @@ if [ -f poetry.lock ]; then
   poetry install --no-root --no-interaction
   export PYTHONPATH="$PWD:$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
   poetry run python -m pip install pytest pip-audit
+  python /security/poetry_security.py --requirements /tmp/security-locked.txt
+  export SECURITY_LOCK_REQUIREMENTS=/tmp/security-locked.txt
   verify_python poetry run python
 elif [ -f uv.lock ]; then
   python -m pip install uv
@@ -276,9 +300,12 @@ cargo test --workspace --locked
 ''',
     }
     if prepare:
-        if kind != "node":
+        if kind == "node":
+            scripts[kind] = "set -eu\nnpm audit fix --package-lock-only --ignore-scripts --no-fund\n"
+        elif kind == "python":
+            scripts[kind] = "set -eu\npython -m pip install poetry pip-audit\npython /security/poetry_security.py\n"
+        else:
             raise Blocked("Unsupported preparation phase")
-        scripts[kind] = "set -eu\nnpm audit fix --package-lock-only --ignore-scripts --no-fund\n"
     # Only repository contents are mounted. No host home, SSH agent, Docker
     # socket, GitHub token, or controller directory is visible to project code.
     name = "security-check-" + os.urandom(8).hex()
@@ -297,6 +324,7 @@ rm "$probe"
              "--user", f"{os.getuid()}:{os.getgid()}",
              "--security-opt=no-new-privileges", "--pids-limit=512", "--memory=10g",
              "--cpus=4", "--mount", f"type=bind,src={root},dst=/repo",
+             "--mount", f"type=bind,src={Path(__file__).with_name('poetry_security.py')},dst=/security/poetry_security.py,readonly",
              "--workdir", "/repo/" + relative, "--env", "CI=true",
              "--env", "HOME=/tmp", "--env", "CARGO_HOME=/tmp/cargo",
              images[kind], "sh", "-c",
@@ -330,6 +358,35 @@ def prepare_npm(project):
             return False
         destination.write_text(repaired)
         return True
+
+
+def prepare_poetry(project):
+    if not (project / "poetry.lock").is_file():
+        return []
+    from poetry_security import allowed_manifest_change
+    names = ("pyproject.toml", "poetry.lock")
+    with tempfile.TemporaryDirectory(prefix="security-poetry-") as directory:
+        work = Path(directory)
+        for name in names:
+            source = project / name
+            if source.is_symlink():
+                raise Blocked("Symlinked Poetry manifests are not supported")
+            shutil.copyfile(source, work / name)
+        before = tomllib.loads((work / "pyproject.toml").read_text())
+        container(work, work, "python", prepare=True)
+        if any((work / name).is_symlink() for name in names):
+            raise Blocked("Poetry preparation produced symlinked manifests")
+        after = tomllib.loads((work / "pyproject.toml").read_text())
+        if not allowed_manifest_change(before, after):
+            raise Blocked("Poetry preparation modified non-dependency configuration")
+        tomllib.loads((work / "poetry.lock").read_text())
+        changed = []
+        for name in names:
+            content = (work / name).read_text()
+            if (project / name).read_text() != content:
+                (project / name).write_text(content)
+                changed.append(name)
+        return changed
 
 
 def repair(api, repo, pr, apply):
@@ -370,11 +427,13 @@ def repair(api, repo, pr, apply):
         for relative, kind in selected:
             if kind == "node" and prepare_npm(target / relative):
                 added_locks.append((Path(relative) / "package-lock.json").as_posix())
+            if kind == "python":
+                added_locks.extend((Path(relative) / name).as_posix() for name in prepare_poetry(target / relative))
         if added_locks:
             git(["add", "--", *added_locks], target)
             git(["-c", "user.name=Security Repair Bot", "-c",
                  f"user.email={OWNER}@users.noreply.github.com", "commit", "-m",
-                 "Fix remaining npm dependency vulnerabilities"], target)
+                 "Fix remaining dependency vulnerabilities"], target)
         validated = safe_sha(git(["rev-parse", "HEAD"], target, capture=True))
         # Save the exact commit in a separate bare repo BEFORE running any
         # project code. Project code cannot alter the objects later published.
@@ -407,7 +466,7 @@ def repair(api, repo, pr, apply):
                 container(post, post / relative, kind, max(1, int(deadline - time.monotonic())))
             result["post_validation"] = "passed"
             try:
-                check_ci(api, full_name, validated)
+                wait_for_ci(api, full_name, validated)
                 result["published_commit_ci"] = "all currently reported checks passed"
             except Blocked as exc:
                 result["published_commit_ci"] = str(exc)

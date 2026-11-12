@@ -72,6 +72,32 @@ class API:
 
 
 class Gates(unittest.TestCase):
+    def test_post_publish_ci_waits_for_pending_but_does_not_ignore_failure(self):
+        with patch("bot.check_ci", side_effect=[bot.PendingCI("pending"), None]) as check, \
+                patch("bot.time.sleep"):
+            bot.wait_for_ci(None, "x/y", "a")
+        self.assertEqual(check.call_count, 2)
+        with patch("bot.check_ci", side_effect=bot.Blocked("failed")) as check, \
+                patch("bot.time.sleep") as sleep:
+            with self.assertRaises(bot.Blocked):
+                bot.wait_for_ci(None, "x/y", "a")
+        self.assertEqual(check.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_poetry_preparation_rejects_non_dependency_configuration_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "pyproject.toml").write_text('[tool.poetry]\nname="app"\n')
+            (project / "poetry.lock").write_text('package=[]\n')
+
+            def prepare(work, *args, **kwargs):
+                self.assertFalse((work / ".git").exists())
+                (work / "pyproject.toml").write_text('[tool.poetry]\nname="changed"\n')
+
+            with patch("bot.container", side_effect=prepare), self.assertRaises(bot.Blocked):
+                bot.prepare_poetry(project)
+            self.assertIn('name="app"', (project / "pyproject.toml").read_text())
+
     def test_python_fallback_only_accepts_no_tests_not_failed_tests_or_audits(self):
         with patch("bot.run") as command, patch("bot.subprocess.run"):
             bot.container(Path("/tmp/repo"), Path("/tmp/repo/project"), "python")

@@ -134,6 +134,15 @@ resulting commit is saved outside the test container before testing:
   Poetry dependency environments use `--no-root` to support repositories that
   are collections of scripts rather than installable packages; source roots are
   placed on `PYTHONPATH` for testing.
+  Before testing, Poetry lockfiles are audited as frozen requirement pins in a
+  separate manifests-only directory. Patched transitive constraints are added to
+  a non-optional `security` dependency group; incompatible direct ancestors may
+  be upgraded by the solver. Only dependency tables may change. The repaired
+  manifests are committed before tests, so the published commit includes these
+  repairs. If no compatible stable fix exists, publishing remains blocked.
+  Poetry audits cover locked project dependencies rather than unrelated seeded
+  environment tools. The `--disable-pip` option is used only with exported frozen
+  requirements and `--no-deps`, as required by pip-audit.
   Actual test failures block publication. When pytest collects no tests, validate
   dependency consistency with `pip check` and compile tracked Python sources,
   explicitly logging that no unit tests exist. Unsupported project setup or
@@ -166,6 +175,8 @@ the tested commit, and repeats audit/build/tests from a fresh checkout. It also
 reports the published commit's currently available CI state. A later asynchronous
 CI failure is handled by that workflow's own GitHub notifications; this process
 does not monitor indefinitely. A post-publication failure fails this workflow;
+Pending published-commit CI gets up to five minutes to finish before it is
+reported unresolved; pending is not treated as an immediate test failure.
 automatic rollback is not implemented. Alert closure may lag dependency-graph
 processing and is checked again on the next daily scan.
 

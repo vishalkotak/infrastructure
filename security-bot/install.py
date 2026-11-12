@@ -13,6 +13,8 @@ import re
 
 REPO = "vishalkotak/infrastructure"
 FILES = {"bot.py": "security-bot/bot.py", "test_bot.py": "security-bot/test_bot.py",
+         "poetry_security.py": "security-bot/poetry_security.py",
+         "test_poetry_security.py": "security-bot/test_poetry_security.py",
          "README.md": "security-bot/README.md",
          "install.py": "security-bot/install.py", "test_install.py": "security-bot/test_install.py",
          "daily-security.yml": ".github/workflows/daily-security.yml"}
