@@ -8,15 +8,29 @@ I work on platform problems where one shared library serves many product teams. 
 
 ## How to use it
 
-After one-time setup of the Agent Substrate worker image, credentials, and (for a private company) organization settings, the check takes a pull request URL:
+The PR checker needs a one-time setup of the Agent Substrate worker image, credentials, and (for a private company) organization settings. After that, pass it the pull request URL:
 
 ```sh
 downstream-detector check https://github.com/OWNER/REPO/pull/123
 ```
 
-It identifies the changed Rust crate, discovers and ranks consumers, runs their tests in parallel isolated actors, and prints a short result summary. Full test output and backtraces are saved under `.downstream-detector/reports/`. Public consumer discovery uses crates.io; set `DETECTOR_GITHUB_ORG` and a GitHub token to include company repositories found through code search. For GitHub Enterprise Server, also set `DETECTOR_GITHUB_HOST`. The demo does not yet automatically configure a company's credentials or internal Cargo registry.
+It identifies the changed Rust crate, discovers and ranks consumers, runs their tests in isolated actors, and prints a short result summary. Full test output and backtraces are saved under `.downstream-detector/reports/`. Public consumer discovery uses crates.io; set `DETECTOR_GITHUB_ORG` and a GitHub token to include company repositories found through code search. For GitHub Enterprise Server, also set `DETECTOR_GITHUB_HOST`. The tool does not automatically configure company credentials or an internal Cargo registry.
 
-The local `itoa` → `serde_json` compatibility example is available with `bash demo/itoa-serde/run.sh`.
+### Run the local demo
+
+With Docker running, run:
+
+```sh
+bash demo/itoa-serde/run.sh
+```
+
+This builds the detector and a self-contained demo image, then checks an intentionally behavior-breaking change to `itoa` against `serde_json`. The public API is unchanged, but downstream tests catch the changed output. The actor runs with network disabled. See the [captured output and backtraces](demo/itoa-serde/report.txt), the [demo change](demo/itoa-serde/change.patch), or watch the walkthrough below.
+
+### When there are thousands of consumers
+
+The checker does not start a sandbox for every discovered repository. It first deduplicates consumers by repository, ranks them, and applies a job budget. Public crates are ranked by crates.io download counts; company repositories can be ranked with `DETECTOR_PRIORITY_FILE`, a JSON map from repository name to an integer priority. Company repositories are considered before public ones when both sources are enabled. These are useful starting signals, not a guarantee that the selected repositories are the most business-critical.
+
+By default it selects at most **5 repositories** (`DETECTOR_MAX_JOBS`, configurable up to 32) and runs at most **2 checks at once** (`DETECTOR_MAX_PARALLEL`, configurable up to 32). Each selected repository gets its own temporary actor, so the number of sandboxes is bounded by the job budget, while parallelism bounds active resource use and cost. The remaining consumers are omitted from that run; reports include the selected count and any repositories that could not be prepared. The current prototype samples by ranking rather than scheduling every consumer in batches. Company code search is paginated up to 1,000 results, so larger organizations need a broader inventory source for complete discovery.
 
 ## How Agent Substrate fits
 
