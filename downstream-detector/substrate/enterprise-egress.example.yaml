@@ -1,7 +1,8 @@
-# Replace the hostname and credential URI after configuring the credential provider.
-# The secret must be a short-lived, read-only token scoped only to the upstream
-# crate and selected downstream repository for this actor.
-# HTTPS interception requires the actor's Substrate trust-bundle mount.
+# Template: replace the host and Secret URI after a cluster admin configures the
+# Substrate credential provider and authorizes this atespace for the Secret namespace.
+# Use read-only credentials scoped to the upstream and selected consumers. A Kubernetes
+# Secret is static: it does not issue or rotate short-lived GitHub App tokens.
+# The CLI mounts Substrate's MITM and system-root trust bundles for HTTPS interception.
 rules:
   - https:
       hostnames: [github.example.com]
