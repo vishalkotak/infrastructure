@@ -232,20 +232,30 @@ if node -e 'process.exit(require("./package.json").scripts?.build ? 0 : 1)'; the
 if node -e 'process.exit(require("./package.json").scripts?.test ? 0 : 1)'; then CI=true npm test; fi
 ''',
         "python": r'''set -eu
+verify_python() {
+  "$@" -m pip check
+  "$@" -m pip_audit
+  if "$@" -m pytest; then
+    return 0
+  else
+    test_status=$?
+  fi
+  if [ "$test_status" -ne 5 ]; then return "$test_status"; fi
+  echo 'No unit tests collected: validating dependency compatibility and tracked-source compilation instead.'
+  git ls-files -z '*.py' | xargs -0 -r "$@" -m py_compile
+}
 python -m pip install --disable-pip-version-check pytest pip-audit
 if [ -f poetry.lock ]; then
   python -m pip install poetry
   poetry install --no-root --no-interaction
   export PYTHONPATH="$PWD:$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
   poetry run python -m pip install pytest pip-audit
-  poetry run python -m pip_audit --disable-pip
-  poetry run python -m pytest
+  verify_python poetry run python
 elif [ -f uv.lock ]; then
   python -m pip install uv
   uv sync --locked --all-extras
   uv pip install --python .venv/bin/python pytest pip-audit
-  .venv/bin/python -m pip_audit --disable-pip
-  .venv/bin/python -m pytest
+  verify_python .venv/bin/python
 else
   if [ -f pyproject.toml ]; then python -m pip install '.[dev]'; fi
   found=false
@@ -255,8 +265,7 @@ else
     found=true
   done
   if [ ! -f pyproject.toml ] && [ "$found" = false ]; then exit 1; fi
-  python -m pip_audit --disable-pip
-  python -m pytest
+  verify_python python
 fi
 ''',
         "rust": r'''set -eu
@@ -448,7 +457,8 @@ def main():
     actor = api.request("/user")["login"]
     repos = [r for r in api.pages("/user/repos?affiliation=owner&sort=full_name")
              if r["owner"]["login"].lower() == OWNER.lower()]
-    report = {"owner": OWNER, "apply": args.apply, "repositories": [], "errors": []}
+    report = {"owner": OWNER, "apply": args.apply, "repositories": [], "errors": [],
+              "python_no_test_policy": "Audit, pip check, and tracked-source compilation; no unit tests claimed"}
     failed = False
     started = time.monotonic()
     try:

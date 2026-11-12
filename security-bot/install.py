@@ -22,12 +22,28 @@ def gh(*args, payload=None):
     command = ["gh", *args]
     if payload is not None:
         command.extend(["--input", "-"])
-    result = subprocess.run(command, input=None if payload is None else json.dumps(payload),
-                            text=True, capture_output=True)
-    if result.returncode:
-        raise SystemExit("GitHub CLI request failed. Check authentication and repository/workflow permissions.\n"
-                         + result.stderr)
-    return json.loads(result.stdout) if result.stdout.strip() else None
+    method = args[args.index("--method") + 1] if "--method" in args else "GET"
+    read_only = method == "GET" and payload is None
+    for attempt in range(3 if read_only else 1):
+        result = subprocess.run(command, input=None if payload is None else json.dumps(payload),
+                                text=True, capture_output=True)
+        if not result.returncode:
+            try:
+                if not result.stdout.strip() and read_only:
+                    raise ValueError("Empty JSON response")
+                return json.loads(result.stdout) if result.stdout.strip() else None
+            except ValueError:
+                transient = True
+                reason = "GitHub returned an empty or incomplete JSON response."
+        else:
+            transient = any(term in result.stderr.lower() for term in (
+                "unexpected end of json", "http 429", "http 500", "http 502", "http 503", "http 504",
+                "error connecting", "connection reset", "timeout"))
+            reason = result.stderr
+        if read_only and transient and attempt < 2:
+            time.sleep(2 ** attempt)
+            continue
+        raise SystemExit("GitHub CLI request failed:\n" + reason)
 
 
 def ensure_workflow_scope():

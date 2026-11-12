@@ -118,7 +118,8 @@ The controller scans GitHub Dependabot alerts, considers only its own marked
 security proposals, and rejects edits outside supported manifests and lockfiles.
 One proposal per repository is considered per day. Vulnerability repairs are
 grouped where Renovate supports it. Existing pending, failed, skipped, or neutral
-CI checks block publication. Missing tests are not interpreted as passing tests.
+CI checks block publication. Missing tests are not reported as passing tests;
+script repositories without a suite use dependency and syntax validation.
 
 The candidate is merged with the current default branch locally. The exact
 resulting commit is saved outside the test container before testing:
@@ -133,8 +134,10 @@ resulting commit is saved outside the test container before testing:
   Poetry dependency environments use `--no-root` to support repositories that
   are collections of scripts rather than installable packages; source roots are
   placed on `PYTHONPATH` for testing.
-  No tests collected, unsupported project setup, or dependency installation
-  failures block publication. Multiple requirements files are conservatively
+  Actual test failures block publication. When pytest collects no tests, validate
+  dependency consistency with `pip check` and compile tracked Python sources,
+  explicitly logging that no unit tests exist. Unsupported project setup or
+  dependency installation failures block publication. Multiple requirements files are conservatively
   installed together; projects with incompatible environment-specific files
   need a dedicated validator.
 - Rust: a clean `cargo audit` and `cargo test --workspace --locked`.

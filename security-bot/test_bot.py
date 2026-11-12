@@ -4,6 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 import io
+import subprocess
+import shlex
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
@@ -70,6 +72,38 @@ class API:
 
 
 class Gates(unittest.TestCase):
+    def test_python_fallback_only_accepts_no_tests_not_failed_tests_or_audits(self):
+        with patch("bot.run") as command, patch("bot.subprocess.run"):
+            bot.container(Path("/tmp/repo"), Path("/tmp/repo/project"), "python")
+        script = command.call_args.args[0][-1]
+        function = script[script.index("verify_python() {"):script.index("\npython -m pip install")]
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            interpreter = work / "test-python"
+            interpreter.write_text('''#!/bin/sh
+case "$2" in
+  pip_audit) exit "$SECURITY_TEST_AUDIT_STATUS";;
+  pytest) exit "$SECURITY_TEST_PYTEST_STATUS";;
+  py_compile) echo compiled >> "$SECURITY_TEST_LOG";;
+esac
+exit 0
+''')
+            interpreter.chmod(0o755)
+            git_stub = work / "git"
+            git_stub.write_text("#!/bin/sh\nprintf 'source.py\\000'\n")
+            git_stub.chmod(0o755)
+            for pytest_status, audit_status, expected in [(0, 0, 0), (5, 0, 0), (1, 0, 1), (2, 0, 2), (0, 1, 1)]:
+                with self.subTest(pytest=pytest_status, audit=audit_status):
+                    log = work / f"result-{pytest_status}-{audit_status}"
+                    env = {"PATH": str(work) + ":/usr/bin:/bin", "SECURITY_TEST_LOG": str(log),
+                           "SECURITY_TEST_PYTEST_STATUS": str(pytest_status),
+                           "SECURITY_TEST_AUDIT_STATUS": str(audit_status)}
+                    result = subprocess.run(["sh", "-c", "set -eu\n" + function +
+                                             "\nverify_python " + shlex.quote(str(interpreter))],
+                                            env=env, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    self.assertEqual(log.exists(), pytest_status == 5 and audit_status == 0)
+
     def test_python_image_honors_newer_project_minimum(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

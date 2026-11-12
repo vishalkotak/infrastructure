@@ -7,6 +7,25 @@ import install
 
 
 class InstallerCredentials(unittest.TestCase):
+    def test_run_detail_read_retries_transient_cli_json_error(self):
+        replies = [subprocess.CompletedProcess([], 1, "", "unexpected end of JSON input"),
+                   subprocess.CompletedProcess([], 0, '{"id":123}', "")]
+        with patch("install.subprocess.run", side_effect=replies) as run, patch("install.time.sleep"):
+            self.assertEqual(install.gh("api", "repos/x/y/actions/runs/123"), {"id": 123})
+        self.assertEqual(run.call_count, 2)
+
+    def test_incomplete_read_body_is_retried(self):
+        replies = [subprocess.CompletedProcess([], 0, '{"id":', ""),
+                   subprocess.CompletedProcess([], 0, '{"id":123}', "")]
+        with patch("install.subprocess.run", side_effect=replies), patch("install.time.sleep"):
+            self.assertEqual(install.gh("api", "repos/x/y/actions/runs/123"), {"id": 123})
+
+    def test_mutating_request_is_not_repeated_after_ambiguous_error(self):
+        with patch("install.subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "HTTP 500")) as run:
+            with self.assertRaises(SystemExit):
+                install.gh("api", "--method", "POST", "repos/x/y/git/commits", payload={"message": "x"})
+        self.assertEqual(run.call_count, 1)
+
     def test_stale_revision_is_cancelled_and_retry_uses_exact_deployed_commit(self):
         old_run = {"id": 1, "head_sha": "a" * 40, "html_url": "https://github.com/test/run/1"}
         new_run = {"id": 2, "head_sha": "b" * 40, "html_url": "https://github.com/test/run/2"}
