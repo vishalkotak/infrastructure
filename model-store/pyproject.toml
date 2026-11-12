@@ -32,10 +32,10 @@ tidb = ["PyMySQL"]
 optional = true
 
 [tool.poetry.group.demo.dependencies]
-torch = "2.5.1"
+torch = "2.13.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "8.3.4"
+pytest = "9.0.3"
 jsonschema = "4.26.0"
 pyyaml = "6.0.3"
 
