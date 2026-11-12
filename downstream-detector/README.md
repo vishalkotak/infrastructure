@@ -1,29 +1,26 @@
 # Downstream Detector
 
-Checks whether an upstream Rust change breaks a downstream project's tests.
+Checks whether a proposed Rust dependency change breaks the software that depends on it.
 
-## Why we built it
+## Why I built it
 
-An API can stay unchanged while a behavior change breaks the applications that rely on it. We built this to test a proposed crate revision against a real consumer before release, and return the failing tests so maintainers can judge the impact.
+I approached this as a platform team problem: we maintain shared libraries used by many product teams, and a change can preserve the API while quietly changing behavior. Before releasing a shared crate, I want to know which important downstream services fail their own tests, and why.
 
 ## How to use it
 
-The included demo compares pinned revisions of `itoa` and its consumer, `serde_json`. Build the images (the demo image fetches its pinned inputs), then run the comparison offline:
+For the pinned `itoa` → `serde_json` demo, run one command:
 
 ```sh
-docker build -t downstream-detector:latest .
-docker build -f demo/itoa-serde/Dockerfile -t downstream-detector:demo .
-docker run --rm --network none --memory 2g --cpus 2 \
-  downstream-detector:demo compare \
-  /opt/real-demo/itoa demo-baseline HEAD itoa \
-  /opt/real-demo/serde-json HEAD
+bash demo/itoa-serde/run.sh
 ```
 
-The report compares the baseline and candidate test results. See [the captured run](demo/itoa-serde/report.txt).
+The intended workflow is to submit a candidate commit and get back the affected consumers and failing tests. This prototype demonstrates the comparison, but still uses preconfigured repositories and revisions; automatic pull request intake and consumer selection are not implemented yet.
 
-## How it uses Agent Substrate
+## How Agent Substrate fits
 
-The Rust detector runs as a configured Agent Substrate actor. Substrate schedules it onto a worker; the demo image already contains both repositories and the Cargo cache, so the actor can run the comparison without network access. The full test output and failure backtraces are saved in the report. This prototype tests one configured downstream project per run.
+Each downstream test run is a short, CPU and memory intensive job. Google's Agent Substrate gives it an isolated actor, a worker pool to schedule jobs across, resource limits, network policy, and snapshots for keeping reports after a run. That makes parallel checks practical without keeping a separate worker alive for every service. The platform documentation reports warm actor resume under 500 ms and over 500 activations per second; those are Substrate figures, not measurements from this demo ([architecture](https://ate.dev/docs/concepts/architecture/)).
+
+In our recorded local Kind/gVisor run, the actor was limited to **1 vCPU and 1 GiB RAM**. Cargo reported **49.18 s** to build the baseline, **48.78 s** for its doc tests, and **42.64 s** to build the candidate; the candidate's failing test target finished in **0.12 s**. These are individual phases, not end-to-end latency, and will vary with hardware and cache state. The full [run report](demo/itoa-serde/report.txt) has the logs and backtraces.
 
 ## Video demo
 
