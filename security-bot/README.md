@@ -143,6 +143,9 @@ resulting commit is saved outside the test container before testing:
   Poetry audits cover locked project dependencies rather than unrelated seeded
   environment tools. The `--disable-pip` option is used only with exported frozen
   requirements and `--no-deps`, as required by pip-audit.
+  Multiple platform-specific versions of a package are audited in separate
+  batches. Every version is retained; no batch contains conflicting duplicate
+  package names, and fixes must satisfy findings from all variants.
   Actual test failures block publication. When pytest collects no tests, validate
   dependency consistency with `pip check` and compile tracked Python sources,
   explicitly logging that no unit tests exist. Unsupported project setup or

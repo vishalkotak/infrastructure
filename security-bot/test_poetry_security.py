@@ -1,9 +1,40 @@
 import unittest
+import json
+from pathlib import Path
+import subprocess
+import tempfile
+from unittest.mock import patch
 
 import poetry_security as security
 
 
 class PoetryRemediation(unittest.TestCase):
+    def test_platform_variants_are_all_audited_without_duplicate_names(self):
+        lock = {"package": [{"name": "nvidia-cublas", "version": "13.6.1.10"},
+                            {"name": "nvidia-cublas", "version": "13.10.0.20"},
+                            {"name": "nvidia-cublas", "version": "13.10.0.20"},
+                            {"name": "requests", "version": "2.34.2"}]}
+        audited = set()
+
+        def audit(args, **kwargs):
+            rows = Path(args[args.index("-r") + 1]).read_text().splitlines()
+            names = [row.split("==")[0] for row in rows]
+            self.assertEqual(len(names), len(set(names)))
+            audited.update(rows)
+            Path(args[args.index("-o") + 1]).write_text(json.dumps({"dependencies": []}))
+            return subprocess.CompletedProcess(args, 0)
+
+        with tempfile.TemporaryDirectory() as directory, patch("poetry_security.subprocess.run", side_effect=audit) as run:
+            _, findings = security.audit_lock(lock, Path(directory) / "locked.txt")
+        self.assertFalse(findings)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(audited, {"nvidia-cublas==13.6.1.10", "nvidia-cublas==13.10.0.20", "requests==2.34.2"})
+
+    def test_fixes_from_multiple_platform_variants_use_strictest_minimum(self):
+        audit = {"dependencies": [{"name": "pkg", "vulns": [{"fix_versions": ["4.2.1"]}]},
+                                  {"name": "pkg", "vulns": [{"fix_versions": ["3.0.0"]}]}]}
+        self.assertEqual(security.patched_versions(audit), {"pkg": "4.2.1"})
+
     def test_frozen_requirements_have_only_validated_package_pins(self):
         lock = {"package": [{"name": "Some_Package", "version": "1.2.3"}]}
         self.assertEqual(security.requirements(lock), "some-package==1.2.3\n")

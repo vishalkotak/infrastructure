@@ -253,7 +253,9 @@ if node -e 'process.exit(require("./package.json").scripts?.test ? 0 : 1)'; then
 verify_python() {
   "$@" -m pip check
   if [ -n "${SECURITY_LOCK_REQUIREMENTS:-}" ]; then
-    "$@" -m pip_audit -r "$SECURITY_LOCK_REQUIREMENTS" --no-deps --disable-pip
+    for requirement in "$SECURITY_LOCK_REQUIREMENTS".*.txt; do
+      "$@" -m pip_audit -r "$requirement" --no-deps --disable-pip
+    done
   else
     "$@" -m pip_audit
   fi
@@ -273,7 +275,7 @@ if [ -f poetry.lock ]; then
   export PYTHONPATH="$PWD:$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
   poetry run python -m pip install pytest pip-audit
   python /security/poetry_security.py --requirements /tmp/security-locked.txt
-  export SECURITY_LOCK_REQUIREMENTS=/tmp/security-locked.txt
+  export SECURITY_LOCK_REQUIREMENTS=/tmp/security-locked
   verify_python poetry run python
 elif [ -f uv.lock ]; then
   python -m pip install uv

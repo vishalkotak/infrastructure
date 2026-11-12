@@ -12,16 +12,53 @@ def canonical(name):
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def requirements(lock):
-    rows = []
+def requirement_batches(lock):
+    versions = {}
     for package in lock.get("package", []):
         if package.get("source", {}).get("type") in ("git", "directory", "file", "url"):
             raise ValueError("Non-registry Poetry dependencies require a dedicated validator")
         version = str(package["version"])
         if not re.fullmatch(r"[0-9][A-Za-z0-9.!+_-]*", version):
             raise ValueError("Unsupported locked package version")
-        rows.append(f"{canonical(package['name'])}=={version}")
-    return "\n".join(sorted(set(rows))) + "\n"
+        versions.setdefault(canonical(package['name']), set()).add(version)
+    ordered = {name: sorted(values) for name, values in sorted(versions.items())}
+    count = max((len(values) for values in ordered.values()), default=1)
+    return ["\n".join(f"{name}=={values[index]}" for name, values in ordered.items()
+                       if index < len(values)) + "\n" for index in range(count)]
+
+
+def requirements(lock):
+    batches = requirement_batches(lock)
+    if len(batches) != 1:
+        raise ValueError("Platform variants require separate audit batches")
+    return batches[0]
+
+
+def write_requirement_files(lock, base):
+    base = Path(base)
+    for old in base.parent.glob(base.stem + ".*" + base.suffix):
+        old.unlink()
+    files = []
+    for index, content in enumerate(requirement_batches(lock)):
+        output = base.with_name(f"{base.stem}.{index}{base.suffix}")
+        output.write_text(content)
+        files.append(output)
+    return files
+
+
+def audit_lock(lock, base=Path("/tmp/security-locked.txt")):
+    data = {"dependencies": []}
+    had_findings = False
+    for index, requirements_file in enumerate(write_requirement_files(lock, base)):
+        output = requirements_file.with_suffix(".audit.json")
+        output.unlink(missing_ok=True)
+        audit = subprocess.run(["python", "-m", "pip_audit", "-r", str(requirements_file), "--no-deps",
+                                "--disable-pip", "-f", "json", "-o", str(output)], check=False)
+        if audit.returncode not in (0, 1) or not output.is_file():
+            raise RuntimeError("Could not audit frozen Poetry dependency batch " + str(index))
+        data["dependencies"].extend(json.loads(output.read_text())["dependencies"])
+        had_findings = had_findings or audit.returncode == 1
+    return data, had_findings
 
 
 def patched_versions(audit):
@@ -35,7 +72,10 @@ def patched_versions(audit):
                 raise ValueError(f"No stable fix for {dependency['name']}: {finding.get('id')}")
             minima.append(min(stable, key=lambda value: tuple(map(int, value.split('.')))))
         if minima:
-            result[canonical(dependency["name"])] = max(minima, key=lambda value: tuple(map(int, value.split('.'))))
+            name = canonical(dependency["name"])
+            if name in result:
+                minima.append(result[name])
+            result[name] = max(minima, key=lambda value: tuple(map(int, value.split('.'))))
     return result
 
 
@@ -104,22 +144,15 @@ def main():
     args = parser.parse_args()
     lock_path = Path("poetry.lock")
     if args.requirements:
-        Path(args.requirements).write_text(requirements(tomllib.loads(lock_path.read_text())))
+        write_requirement_files(tomllib.loads(lock_path.read_text()), Path(args.requirements))
         return
     for _ in range(3):
         lock = tomllib.loads(lock_path.read_text())
         manifest = tomllib.loads(Path("pyproject.toml").read_text())
-        req = Path("/tmp/security-locked.txt")
-        req.write_text(requirements(lock))
-        output = Path("/tmp/security-poetry-audit.json")
-        audit = subprocess.run(["python", "-m", "pip_audit", "-r", str(req), "--no-deps",
-                                "--disable-pip", "-f", "json", "-o", str(output)], check=False)
-        if audit.returncode not in (0, 1) or not output.is_file():
-            raise RuntimeError("Could not audit frozen Poetry dependencies")
-        data = json.loads(output.read_text())
+        data, had_findings = audit_lock(lock)
         fixes = patched_versions(data)
         if not fixes:
-            if audit.returncode:
+            if had_findings:
                 raise RuntimeError("Audit did not confirm a clean lockfile")
             return
         constraints = [f"{name}>={version}" for name, version in sorted(fixes.items())]
