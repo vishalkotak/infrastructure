@@ -118,9 +118,13 @@ pub fn check(pr_url: &str) -> Result<CheckResult, Box<dyn Error>> {
             plan.eligible_repositories,
             public_issue,
         )
-    } else {
+    } else if ecosystem == "python" {
         let (dependents, skipped, discovered) =
             discover_python_repositories(&package_name, max_jobs, lookup_budget)?;
+        (dependents, skipped, discovered, None)
+    } else {
+        let (dependents, skipped, discovered) =
+            discover_npm_repositories(&package_name, max_jobs, lookup_budget)?;
         (dependents, skipped, discovered, None)
     };
     if dependents.is_empty() {
@@ -258,7 +262,7 @@ pub fn check(pr_url: &str) -> Result<CheckResult, Box<dyn Error>> {
         "PR check: {pr_url}\nPackage: {package_name} ({ecosystem})\nDownstream repositories tested: {}\n",
         runs.len()
     );
-    if ecosystem == "python" {
+    if ecosystem != "rust" {
         summary.push_str("Discovery: GitHub code-search sample; not exhaustive.\n");
     }
     let mut succeeded = public_discovery_issue.is_none();
@@ -492,16 +496,30 @@ fn changed_package(pr: &PullRequest, api: &str) -> Result<(String, String), Box<
         .iter()
         .filter_map(|row| row["path"].as_str())
         .filter(|path| {
-            ["Cargo.toml", "pyproject.toml", "setup.cfg", "setup.py"]
-                .iter()
-                .any(|name| path.rsplit('/').next() == Some(*name))
+            [
+                "Cargo.toml",
+                "pyproject.toml",
+                "setup.cfg",
+                "setup.py",
+                "package.json",
+            ]
+            .iter()
+            .any(|name| path.rsplit('/').next() == Some(*name))
         })
         .map(str::to_owned)
         .collect();
     let mut package_manifests = BTreeMap::<(String, String), String>::new();
     for file in files {
         let mut directory = file.rsplit_once('/').map(|v| v.0.to_owned());
-        if ["Cargo.toml", "pyproject.toml", "setup.cfg", "setup.py"].contains(&file.as_str()) {
+        if [
+            "Cargo.toml",
+            "pyproject.toml",
+            "setup.cfg",
+            "setup.py",
+            "package.json",
+        ]
+        .contains(&file.as_str())
+        {
             directory = Some(String::new());
         }
         while let Some(dir) = directory {
@@ -510,6 +528,7 @@ fn changed_package(pr: &PullRequest, api: &str) -> Result<(String, String), Box<
                 ("python", "pyproject.toml"),
                 ("python", "setup.cfg"),
                 ("python", "setup.py"),
+                ("npm", "package.json"),
             ]
             .iter()
             .find_map(|(ecosystem, filename)| {
@@ -540,7 +559,7 @@ fn changed_package(pr: &PullRequest, api: &str) -> Result<(String, String), Box<
     }
     if package_manifests.len() != 1 {
         return Err(format!(
-            "expected changes in one Rust or Python package; found {}. Split multi-package PRs before checking",
+            "expected changes in one Rust, Python, or npm package; found {}. Split multi-package PRs before checking",
             package_manifests.len()
         )
         .into());
@@ -557,6 +576,10 @@ fn changed_package(pr: &PullRequest, api: &str) -> Result<(String, String), Box<
     ))?;
     let package_name = if ecosystem == "rust" {
         parse_package_name(&body)
+    } else if ecosystem == "npm" {
+        serde_json::from_str::<Value>(&body)
+            .ok()
+            .and_then(|manifest| manifest["name"].as_str().map(str::to_owned))
     } else {
         parse_python_package_name(manifest_path, &body)
     }
@@ -646,10 +669,29 @@ fn clean_quoted_value(value: &str) -> Option<String> {
 }
 
 fn validate_package_name(ecosystem: &str, name: &str) -> Result<(), Box<dyn Error>> {
+    let valid_npm_component = |component: &str| {
+        !component.is_empty()
+            && component
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    let valid_npm_name = if ecosystem != "npm" {
+        true
+    } else if let Some(scoped) = name.strip_prefix('@') {
+        scoped.split_once('/').is_some_and(|(scope, package)| {
+            !package.contains('/') && valid_npm_component(scope) && valid_npm_component(package)
+        })
+    } else {
+        !name.contains(['/', '@']) && valid_npm_component(name)
+    };
     let valid_chars = name.chars().all(|c| {
-        c.is_ascii_alphanumeric() || c == '-' || c == '_' || (ecosystem == "python" && c == '.')
+        c.is_ascii_alphanumeric()
+            || c == '-'
+            || c == '_'
+            || (ecosystem == "python" && c == '.')
+            || (ecosystem == "npm" && matches!(c, '.' | '/' | '@'))
     });
-    if name.is_empty() || !valid_chars {
+    if name.is_empty() || !valid_chars || !valid_npm_name {
         return Err(format!("changed {ecosystem} package has an invalid package name").into());
     }
     Ok(())
@@ -911,6 +953,134 @@ fn normalize_python_package_name(name: &str) -> String {
     normalized
 }
 
+fn normalize_npm_package_name(name: &str) -> String {
+    let normalize = |part: &str| {
+        let mut normalized = String::new();
+        let mut separator = false;
+        for character in part.chars() {
+            if matches!(character, '-' | '_' | '.') {
+                separator = true;
+            } else {
+                if separator && !normalized.is_empty() {
+                    normalized.push('-');
+                }
+                separator = false;
+                normalized.push(character.to_ascii_lowercase());
+            }
+        }
+        normalized
+    };
+    if let Some(scoped) = name.strip_prefix('@') {
+        if let Some((scope, package)) = scoped.split_once('/') {
+            return format!("@{}/{}", normalize(scope), normalize(package));
+        }
+    }
+    normalize(name)
+}
+
+fn discover_npm_repositories(
+    package: &str,
+    limit: usize,
+    lookup_budget: usize,
+) -> Result<RepositoryDiscovery, Box<dyn Error>> {
+    let host = env::var("DETECTOR_GITHUB_HOST").unwrap_or_else(|_| "github.com".into());
+    let org = env::var("DETECTOR_GITHUB_ORG").ok();
+    if let Some(org) = &org {
+        if org.is_empty()
+            || !org
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        {
+            return Err("DETECTOR_GITHUB_ORG must be a GitHub organization or user name".into());
+        }
+    }
+    if host.is_empty()
+        || !host
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-'))
+    {
+        return Err("invalid DETECTOR_GITHUB_HOST".into());
+    }
+    let api_host = if host == "github.com" {
+        "api.github.com"
+    } else {
+        host.as_str()
+    };
+    let has_token = match token_env_for_api_host(api_host, Some(&host)) {
+        Some("GITHUB_TOKEN") => env::var("GITHUB_TOKEN")
+            .or_else(|_| env::var("GH_TOKEN"))
+            .is_ok(),
+        Some("DETECTOR_GHES_TOKEN") => env::var("DETECTOR_GHES_TOKEN").is_ok(),
+        _ => false,
+    };
+    if !has_token {
+        return Err("npm consumer discovery uses GitHub code search; set a read-only GitHub API token (GITHUB_TOKEN or DETECTOR_GHES_TOKEN)".into());
+    }
+    let priorities: BTreeMap<String, u64> = match env::var("DETECTOR_PRIORITY_FILE") {
+        Ok(path) => serde_json::from_str(&std::fs::read_to_string(path)?)?,
+        Err(_) => BTreeMap::new(),
+    };
+    let api = api_root(&host);
+    let mut repositories = BTreeMap::<String, u64>::new();
+    let mut skipped = vec![json!({
+        "source":"GitHub code search",
+        "reason":"npm discovery is a best-effort sample, limited to up to 100 root package.json matches; it cannot guarantee full ecosystem coverage"
+    })];
+    let mut scopes = vec![None];
+    if let Some(org) = org.as_deref() {
+        scopes.push(Some(org));
+    }
+    for scope in scopes {
+        let query = match scope {
+            Some(org) => format!(
+                "{}+filename%3Apackage.json+org%3A{}",
+                url_encode(&normalize_npm_package_name(package)),
+                url_encode(org)
+            ),
+            None => format!(
+                "{}+filename%3Apackage.json",
+                url_encode(&normalize_npm_package_name(package))
+            ),
+        };
+        let response: Value = serde_json::from_str(&get(&format!(
+            "{api}/search/code?q={query}&per_page=100&page=1"
+        ))?)?;
+        let items = response["items"]
+            .as_array()
+            .ok_or("GitHub code search response is missing items")?;
+        for (index, item) in items.iter().enumerate() {
+            if item["path"].as_str() != Some("package.json") {
+                continue;
+            }
+            if let Some(full_name) = item["repository"]["full_name"].as_str() {
+                let relevance = 10000u64.saturating_sub(index as u64);
+                let priority = priorities
+                    .get(full_name)
+                    .map(|value| 1_000_000u64.saturating_add(*value))
+                    .unwrap_or(relevance);
+                repositories
+                    .entry(full_name.to_owned())
+                    .and_modify(|current| *current = (*current).max(priority))
+                    .or_insert(priority);
+            }
+        }
+    }
+    let discovered = repositories.len();
+    let mut selected: Vec<_> = repositories.into_iter().collect();
+    selected.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let mut ready = Vec::new();
+    for (attempt, (repository, priority)) in selected.into_iter().enumerate() {
+        if ready.len() >= limit || attempt >= lookup_budget {
+            break;
+        }
+        match latest_revision(&format!("https://{host}/{repository}"), priority, &host) {
+            Ok(dependent) => ready.push(dependent),
+            Err(error) => skipped.push(json!({"repository":repository,"reason":error.to_string()})),
+        }
+    }
+    Ok((ready, skipped, discovered))
+}
+
 fn url_encode(value: &str) -> String {
     let mut encoded = String::new();
     for byte in value.bytes() {
@@ -1017,6 +1187,9 @@ mod tests {
         );
         assert!(validate_package_name("python", "Sample.pkg_1").is_ok());
         assert!(validate_package_name("python", "../evil").is_err());
+        assert!(validate_package_name("npm", "@acme/example").is_ok());
+        assert!(validate_package_name("npm", "example@attacker").is_err());
+        assert!(validate_package_name("npm", "@acme/example/extra").is_err());
     }
 
     #[test]

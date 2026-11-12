@@ -44,8 +44,8 @@ pub fn run(input: &str) -> Result<String, Box<dyn Error>> {
         get(key)?;
     }
     let ecosystem = config["ecosystem"].as_str().unwrap_or("rust");
-    if !matches!(ecosystem, "rust" | "python") {
-        return Err("ecosystem must be 'rust' or 'python'".into());
+    if !matches!(ecosystem, "rust" | "python" | "npm") {
+        return Err("ecosystem must be 'rust', 'python', or 'npm'".into());
     }
     if has_url_userinfo(get("upstream")?) {
         return Err("upstream URLs must not contain credentials".into());
@@ -442,8 +442,11 @@ fn run_command_executor(c: &Value, job: &Value) -> Result<Value, String> {
             response["status"], response["error"]
         ));
     }
-    if c["ecosystem"] == "python" && response["ecosystem"] != "python" {
-        return Err("Python executor response must echo ecosystem: 'python'".into());
+    if c["ecosystem"] != "rust" && response["ecosystem"] != c["ecosystem"] {
+        return Err(format!(
+            "{} executor response must echo its ecosystem",
+            c["ecosystem"]
+        ));
     }
     let report = response["report"]
         .as_str()

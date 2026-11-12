@@ -1,6 +1,6 @@
 # Downstream Detector
 
-**Catch the break before your users do.** A Rust or Python package can keep the same API and still break the apps that depend on it. Give Downstream Detector a pull request; it finds consumer repositories, runs their tests in isolated jobs, and shows you what failed.
+**Catch the break before your users do.** A Rust, Python, or npm package can keep the same API and still break the apps that depend on it. Give Downstream Detector a pull request; it finds consumer repositories, runs their tests in isolated jobs, and shows you what failed.
 
 ## Why I built it
 
@@ -12,7 +12,7 @@ Platform teams ship shared libraries to many product teams. Reviewing the crate 
 downstream-detector check https://github.com/OWNER/REPO/pull/123
 ```
 
-It discovers and ranks consumers, runs their tests, and saves full logs. Python consumer discovery uses a bounded GitHub code-search sample, so it may miss consumers; Rust uses crates.io reverse dependencies. See [Python setup and limits](docs/python-support.md), [private Git credentials](docs/private-git-credentials.md), and the [executor adapter](docs/executor-adapter.md).
+It discovers and ranks consumers, runs their tests, and saves full logs. Python and npm discovery use bounded GitHub code-search samples, so they may miss consumers; Rust uses crates.io reverse dependencies. See [Python setup and limits](docs/python-support.md), [npm setup and limits](docs/npm-support.md), [private Git credentials](docs/private-git-credentials.md), and the [executor adapter](docs/executor-adapter.md).
 
 ## See it catch a break
 

@@ -18,5 +18,6 @@ rules:
         - static.crates.io
         - pypi.org
         - files.pythonhosted.org
+        - registry.npmjs.org
       ports:
         numbers: [443]

@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -20,8 +21,8 @@ pub struct Config {
 // Every revision gets fresh checkouts and an independent build environment.
 // This prevents artifacts from the baseline affecting the candidate.
 pub fn compare(config: &Config) -> Result<String, Box<dyn std::error::Error>> {
-    if !matches!(config.ecosystem.as_str(), "rust" | "python") {
-        return Err("ecosystem must be 'rust' or 'python'".into());
+    if !matches!(config.ecosystem.as_str(), "rust" | "python" | "npm") {
+        return Err("ecosystem must be 'rust', 'python', or 'npm'".into());
     }
     if config.crate_name.is_empty()
         || !config.crate_name.chars().all(|c| {
@@ -29,6 +30,7 @@ pub fn compare(config: &Config) -> Result<String, Box<dyn std::error::Error>> {
                 || c == '-'
                 || c == '_'
                 || (config.ecosystem == "python" && c == '.')
+                || (config.ecosystem == "npm" && matches!(c, '.' | '/' | '@'))
         })
     {
         return Err("package name contains unsupported characters for this ecosystem".into());
@@ -55,6 +57,9 @@ pub fn compare(config: &Config) -> Result<String, Box<dyn std::error::Error>> {
 fn compare_in(c: &Config, root: &Path) -> Result<String, Box<dyn std::error::Error>> {
     if c.ecosystem == "python" {
         return compare_python(c, root);
+    }
+    if c.ecosystem == "npm" {
+        return compare_npm(c, root);
     }
     let baseline = run_revision(c, root, "baseline", &c.baseline)?;
     // Keep the captured output, but release baseline build artifacts before
@@ -378,6 +383,198 @@ fn format_python_output(output: &Output) -> String {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     )
+}
+
+fn compare_npm(c: &Config, root: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let baseline = run_npm_revision(c, root, "baseline", &c.baseline)?;
+    let candidate = run_npm_revision(c, root, "candidate", &c.candidate)?;
+    let baseline_passed = baseline
+        .tests
+        .as_ref()
+        .is_some_and(|output| output.status.success());
+    let candidate_passed = candidate
+        .tests
+        .as_ref()
+        .is_some_and(|output| output.status.success());
+    let verdict = if baseline.setup_failure.is_some() || !baseline_passed {
+        "INCONCLUSIVE_BASELINE_FAILED"
+    } else if candidate.setup_failure.is_some() {
+        "INCONCLUSIVE_CANDIDATE_BUILD_OR_SETUP_FAILED"
+    } else if candidate_passed {
+        "NO_REGRESSION_DETECTED"
+    } else {
+        "POTENTIAL_REGRESSION"
+    };
+    let baseline_setup = baseline
+        .setup_failure
+        .as_ref()
+        .map(|error| format!("{error}\n{}", baseline.setup_log))
+        .unwrap_or_else(|| baseline.setup_log.clone());
+    let candidate_setup = candidate
+        .setup_failure
+        .as_ref()
+        .map(|error| format!("{error}\n{}", candidate.setup_log))
+        .unwrap_or_else(|| candidate.setup_log.clone());
+    Ok(format!(
+        "Verdict: {verdict}\n\nBaseline setup:\n{}\nBaseline tests:\n{}\n\nCandidate setup:\n{}\nCandidate tests:\n{}",
+        baseline_setup,
+        baseline.tests.as_ref().map(format_python_output).unwrap_or_else(|| "not run\n".into()),
+        candidate_setup,
+        candidate.tests.as_ref().map(format_python_output).unwrap_or_else(|| "not run\n".into()),
+    ))
+}
+
+fn run_npm_revision(
+    c: &Config,
+    root: &Path,
+    label: &str,
+    revision: &str,
+) -> Result<PythonRevision, Box<dyn std::error::Error>> {
+    let dir = root.join(label);
+    fs::create_dir(&dir)?;
+    let upstream = checkout(&c.upstream, revision, &dir.join("upstream"))?;
+    if label == "candidate" {
+        if let Ok(expected) = env::var("DETECTOR_EXPECT_CANDIDATE_SHA") {
+            let mut command = Command::new("git");
+            command
+                .current_dir(&upstream)
+                .args(["rev-parse", "--verify", "HEAD"]);
+            let actual =
+                crate::process::run_limited(&mut command, process_timeout()?, 1024 * 1024)?;
+            if !actual.status.success()
+                || String::from_utf8_lossy(&actual.stdout).trim() != expected
+            {
+                return Err(
+                    format!("candidate moved during the check: expected {expected}").into(),
+                );
+            }
+        }
+    }
+    let downstream = checkout(&c.downstream, &c.downstream_ref, &dir.join("downstream"))?;
+    let mut setup_log = String::new();
+    let timeout = process_timeout()?;
+    let setup =
+        |command: &mut Command, stage: &str, logs: &mut String| match crate::process::run_limited(
+            command,
+            timeout,
+            4 * 1024 * 1024,
+        ) {
+            Ok(output) => {
+                logs.push_str(&format!(
+                    "[{stage}]\n{}{}\n",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    Err(format!("{stage} failed ({}).", status(&output)))
+                }
+            }
+            Err(error) => Err(format!("{stage} could not run: {error}")),
+        };
+    let manifest_path = downstream.join("package.json");
+    let manifest: Value = match fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+    {
+        Some(manifest) => manifest,
+        None => {
+            return Ok(PythonRevision {
+                setup_log,
+                setup_failure: Some("consumer repository has no valid root package.json".into()),
+                tests: None,
+            });
+        }
+    };
+    if manifest.get("workspaces").is_some() {
+        return Ok(PythonRevision {
+            setup_log,
+            setup_failure: Some("npm workspaces are not supported yet; the consumer must have a root package.json without workspaces".into()),
+            tests: None,
+        });
+    }
+    if manifest["scripts"]["test"].as_str().is_none() {
+        return Ok(PythonRevision {
+            setup_log,
+            setup_failure: Some("consumer package.json has no scripts.test command".into()),
+            tests: None,
+        });
+    }
+    let manager = manifest["packageManager"].as_str().unwrap_or("npm");
+    if !manager.starts_with("npm@") && manager != "npm" {
+        return Ok(PythonRevision {
+            setup_log,
+            setup_failure: Some(format!(
+                "unsupported package manager '{manager}'; this runner currently supports npm"
+            )),
+            tests: None,
+        });
+    }
+    if downstream.join("pnpm-lock.yaml").exists() || downstream.join("yarn.lock").exists() {
+        return Ok(PythonRevision {
+            setup_log,
+            setup_failure: Some(
+                "pnpm and Yarn lockfiles are not supported yet; this runner currently supports npm"
+                    .into(),
+            ),
+            tests: None,
+        });
+    }
+    let mut install = Command::new("npm");
+    install.current_dir(&downstream).args([
+        if downstream.join("package-lock.json").exists()
+            || downstream.join("npm-shrinkwrap.json").exists()
+        {
+            "ci"
+        } else {
+            "install"
+        },
+        "--no-audit",
+        "--no-fund",
+    ]);
+    if let Err(error) = setup(
+        &mut install,
+        "install downstream dependencies",
+        &mut setup_log,
+    ) {
+        return Ok(PythonRevision {
+            setup_log,
+            setup_failure: Some(error),
+            tests: None,
+        });
+    }
+    let mut install_upstream = Command::new("npm");
+    install_upstream
+        .current_dir(&downstream)
+        .args([
+            "install",
+            "--no-save",
+            "--package-lock=false",
+            "--force",
+            "--no-audit",
+            "--no-fund",
+        ])
+        .arg(&upstream);
+    if let Err(error) = setup(
+        &mut install_upstream,
+        "install changed package source",
+        &mut setup_log,
+    ) {
+        return Ok(PythonRevision {
+            setup_log,
+            setup_failure: Some(error),
+            tests: None,
+        });
+    }
+    let mut test = Command::new("npm");
+    test.current_dir(&downstream).arg("test");
+    let test_output = crate::process::run_limited(&mut test, process_timeout()?, 4 * 1024 * 1024)?;
+    Ok(PythonRevision {
+        setup_log,
+        setup_failure: None,
+        tests: Some(test_output),
+    })
 }
 
 fn checkout(

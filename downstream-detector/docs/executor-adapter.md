@@ -42,11 +42,11 @@ The protocol is versioned and currently sends:
 }
 ```
 
-The `ecosystem` is `rust` or `python`; pass it to the detector as `DETECTOR_ECOSYSTEM`. The `crate_name` field contains the package name for either ecosystem for protocol compatibility. Run the comparison in a fresh, isolated environment. `candidate_sha` pins the moving PR ref: reject the run if fetching `candidate` resolves to a different commit. `git_auth_host` is present only when the run needs authenticated access to that host. Apply the requested resource limits and your own network and secret policies. Do not make repository code or build/test processes share controller credentials or control-plane access.
+The `ecosystem` is `rust`, `python`, or `npm`; pass it to the detector as `DETECTOR_ECOSYSTEM`. The `crate_name` field contains the package name for protocol compatibility. Run the comparison in a fresh, isolated environment. `candidate_sha` pins the moving PR ref: reject the run if fetching `candidate` resolves to a different commit. `git_auth_host` is present only when the run needs authenticated access to that host. Apply the requested resource limits and your own network and secret policies. Do not make repository code or build/test processes share controller credentials or control-plane access.
 
 ## Response
 
-On completion, write a single JSON object to standard output. Echo the requested ecosystem in the response; Python runs are rejected if it is missing or different.
+On completion, write a single JSON object to standard output. Echo the requested ecosystem in the response; Python and npm runs are rejected if it is missing or different.
 
 ```json
 {"status":"completed","executor":"my-runner","ecosystem":"rust","report":"Verdict: NO_REGRESSION_DETECTED\\n... full test logs ..."}

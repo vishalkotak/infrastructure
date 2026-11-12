@@ -301,6 +301,105 @@ fn catches_a_python_downstream_regression() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn catches_an_npm_downstream_regression() {
+    if Command::new("npm").arg("--version").output().is_err() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!(
+        "detector-npm-test-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let upstream = root.join("upstream");
+    let downstream = root.join("downstream");
+    fs::create_dir_all(&upstream).unwrap();
+    fs::create_dir_all(&downstream).unwrap();
+    fs::write(
+        upstream.join("package.json"),
+        r#"{"name":"example-math","version":"1.0.0","main":"index.js"}"#,
+    )
+    .unwrap();
+    fs::write(upstream.join("index.js"), "exports.double = x => x * 2;\n").unwrap();
+    git(&upstream, &["init", "-q"]);
+    git(&upstream, &["add", "."]);
+    git(
+        &upstream,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "baseline",
+        ],
+    );
+    git(&upstream, &["tag", "baseline"]);
+    fs::write(upstream.join("index.js"), "exports.double = x => x * 3;\n").unwrap();
+    git(&upstream, &["add", "."]);
+    git(
+        &upstream,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "candidate",
+        ],
+    );
+    fs::write(
+        downstream.join("package.json"),
+        r#"{"name":"consumer","version":"1.0.0","scripts":{"test":"node test.js"}}"#,
+    )
+    .unwrap();
+    fs::write(downstream.join("test.js"), "const assert = require('node:assert/strict'); const {double} = require('example-math'); assert.equal(double(2), 4);\n").unwrap();
+    git(&downstream, &["init", "-q"]);
+    git(&downstream, &["add", "."]);
+    git(
+        &downstream,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "consumer",
+        ],
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_downstream-detector"))
+        .args([
+            "compare",
+            upstream.to_str().unwrap(),
+            "baseline",
+            "HEAD",
+            "example-math",
+            downstream.to_str().unwrap(),
+            "HEAD",
+        ])
+        .env("DETECTOR_ECOSYSTEM", "npm")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = String::from_utf8_lossy(&output.stdout);
+    assert!(report.contains("POTENTIAL_REGRESSION"), "{report}");
+    assert!(
+        report.contains("install changed package source"),
+        "{report}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn request(address: std::net::SocketAddr, request: &str) -> std::io::Result<String> {
     let mut stream = TcpStream::connect(address)?;
     stream.write_all(request.as_bytes())?;
