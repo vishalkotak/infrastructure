@@ -1,5 +1,7 @@
 # infrastructure
 
+[![ci](https://github.com/vishalkotak/infrastructure/actions/workflows/ci.yml/badge.svg)](https://github.com/vishalkotak/infrastructure/actions/workflows/ci.yml)
+
 | Project | |
 |---|---|
 | [downstream-detector](downstream-detector/) | Runs downstream consumers' tests against a library PR to catch breaks the API doesn't show. [Design](downstream-detector/DESIGN.md). |
