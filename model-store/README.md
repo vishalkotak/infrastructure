@@ -1,22 +1,17 @@
 # Model Store
 
-A model registry, deployment control plane and GPU placement layer, built to run on a laptop.
+Model registry and Kubernetes deployment control plane, built to run on a laptop.
 
-The host-side control plane runs natively on macOS (arm64) and talks to local Kubernetes clusters (minikube), Temporal, Postgres (or TiDB), S3-compatible storage (MinIO) and Prometheus.
+The host-side control plane runs natively on macOS (arm64) and talks to local Kubernetes clusters (minikube), Postgres (or TiDB), S3-compatible storage (MinIO) and Prometheus.
 
-## Layout
+## What's built
 
-| Path | Purpose |
-| --- | --- |
-| `modelstore/api` | FastAPI control-plane service |
-| `modelstore/workflows` | Temporal workflows for deployments |
-| `modelstore/canary` | Canary analysis and promotion |
-| `modelstore/placement` | GPU placement across data centres |
-| `modelstore/cli.py` | `ms` command-line tool |
-| `dataplane/` | Data-plane components |
-| `deploy/k8s/` | Kubernetes manifests |
-| `scripts/` | Helper scripts |
-| `tests/` | Test suite |
+- **Registry** (`modelstore/`): models, versions, stage lifecycle (staging, production, archived), tags. Postgres or TiDB.
+- **Artifacts**: S3/MinIO, sha256-verified on fetch.
+- **`ModelEndpoint` CRD + kopf operator** (`dataplane/`, `deploy/k8s/`): reconciles stable and canary Deployments with surge-first rollouts.
+- **Model server**: FastAPI, warmup before readiness, batched predict, Prometheus metrics.
+
+Next: Temporal deploy workflows, automated canary analysis, GPU placement.
 
 ## Setup
 
